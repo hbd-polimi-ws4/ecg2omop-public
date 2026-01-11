@@ -19,7 +19,7 @@ function [record_list, comTableFull, smpTableFull, rrdTableFull, annTableFull, h
 %       table with the various HRV-based metrics that can be computed
 %
 % Contributors:
-%   Pierluigi Reali, Ph.D., 2025
+%   Pierluigi Reali, Ph.D., 2024-2026
 %   Alessandro Carotenuto, 2024
 %
 % Affiliation:
@@ -40,6 +40,7 @@ function [record_list, comTableFull, smpTableFull, rrdTableFull, annTableFull, h
 
 %% Check whether the RECORDS file is present in the current directory.
 dir_info = dir(fullfile(pwd, '**', 'RECORDS'));
+
 if ~isempty(dir_info)
     folderPath = dir_info.folder;
     % Leggi i percorsi dei file da RECORDS
@@ -61,14 +62,12 @@ if ~isempty(dir_info)
     % smpTable, rrdTable, and annTable, replace [] (marker for 'all') with
     % the desired number.
     toEndRR = [];  %number of RR intervals for rrdTable and annTable
-    toEndSmp = 5;%number of ECG samples to be extracted for smpTable
-                  %(we need all the samples in smpTable only if we want to
-                  % load also every single sample in a relational DB, which
-                  % we don't need as our infrastructure is built on a data lake)
+    toEndSmp = []; %number of ECG samples to be extracted for smpTable
 
     %% Inizializza tabelle vuote
     comTableFull = tableBuilder('notes', length(record_list));
     smpTableFull = tableBuilder('meas', 0);
+    dgnTableFull = tableBuilder('autoDiag',0);
     rrdTableFull = tableBuilder('rrIntDur', 0);
     annTableFull = tableBuilder('annotations', 0);
     hrvTableFull = tableBuilder('hrvMetrics', length(record_list));
@@ -103,6 +102,10 @@ if ~isempty(dir_info)
             smpTable = SMPextraction(record_path, dataset_Name, 'id', 1+height(smpTableFull), 'fk_id', i, ...
               'toEnd', toEndSmp);
             smpTableFull((1+height(smpTableFull)):(height(smpTable)+height(smpTableFull)),:) = smpTable(:,:);
+
+            % Extract automated ECG diagnoses
+            dgnTable = DGNextraction(smpTable, 'id', 1+height(dgnTableFull), 'fk_id', i);
+            dgnTableFull((1+height(dgnTableFull)):(height(dgnTable)+height(dgnTableFull)),:) = dgnTable(:,:);
 
             % Estrai RR-intervals
             rrdTable = RRextraction(record_path, dataset_Name, 'id', 1+height(rrdTableFull), 'fk_id', i, ...

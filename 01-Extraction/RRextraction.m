@@ -58,7 +58,11 @@ record_Name = tailPathRec(recordName, dataset_Name);
 
 %% Se il record è provvisto del file ANNOTATORS sceglie come estrarre i dati
 
+% This flag will be set to "false" if the extraction of R peaks from
+% the annotation file works
 needRpeakDetect = true;
+
+% If an annotation file is available, try to read the R peaks from there
 if ext_bool
     % Estrai i dati tramite wfdb-physionet-toolbox
     % PierMOD: L'originale presenta outputs con ordine scambiato rispetto a
@@ -101,6 +105,9 @@ if ext_bool
     end
     %---
 end
+
+% If an annotation file is unavailable or is invalid, detect R peaks
+% from the ECG
 if needRpeakDetect
     % PierMOD: L'originale presentava errori in creazione vettori ini_tms,
     % fin_tms e RR. Il codice revisionato restituisce outputs del tutto
