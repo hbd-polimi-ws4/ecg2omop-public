@@ -1,6 +1,6 @@
-function [record_list, comTableFull, smpTableFull, rrdTableFull, annTableFull, hrvTableFull] = MAINextraction()
+function [record_list, comTableFull, smpTableFull,dgnTableFull, rrdTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
 % 
-% [record_list, comTableFull, smpTableFull, rrTableFull, annTableFull, hrvTableFull] = MAINextraction()
+% [record_list, comTableFull, smpTableFull, dgnTableFull, rrTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
 %  
 %   Main function to manage extraction of data and metadata from datasets
 %   to be executed in the dataset's root directory. It returns:
@@ -25,6 +25,20 @@ function [record_list, comTableFull, smpTableFull, rrdTableFull, annTableFull, h
 % Affiliation:
 %   Department of Electronics Information and Bioengineering, Politecnico di Milano
 
+%% Check input arguments
+
+% All the inputs to this function are optional
+ip = inputParser;
+ip.addParameter( 'RECORDSpath', pwd, @(x) (isstring(x) && isscalar(x)) || (ischar(x) && isvector(x)) );
+ip.addParameter( 'writeFullCSVs', true, @(x) islogical(x) && isscalar(x) );
+ip.addParameter( 'linkTablesWithFKid', true, @(x) islogical(x) && isscalar(x) )
+
+% Input arguments parsing
+ip.parse(varargin{:});
+RECORDSpath = ip.Results.RECORDSpath;
+writeFullCSVs = ip.Results.writeFullCSVs;
+linkTablesWithFKid = ip.Results.linkTablesWithFKid;
+
 %% Check the correct options are set for the WSDB toolbox
 
 % % Load WFDB configuration
@@ -38,9 +52,24 @@ function [record_list, comTableFull, smpTableFull, rrdTableFull, annTableFull, h
 %     error('MAINextraction:chkWFDBconfig','The CACHE variable in %s must be set to 0. Restart Matlab afterwards!',configPath);
 % end
 
-%% Check whether the RECORDS file is present in the current directory.
+%% Process all data files found in the RECORDS file
+
+% Before moving to the RECORDS file path, check if this function's path is
+% in the Matlab path (for correctly calling the other functions from other
+% directories). If not, add it.
+funPath = fileparts(which('MAINextraction'));
+if ~contains(path,funPath)
+    addpath(funPath);
+end
+
+% Move to the RECORDS file path given as input (or remain in the current
+% directory otherwise)
+origPath = cd(RECORDSpath);
+
+% Look for the RECORDS file in the current directory
 dir_info = dir(fullfile(pwd, '**', 'RECORDS'));
 
+% Check whether the RECORDS file is present in the current directory.
 if ~isempty(dir_info)
     folderPath = dir_info.folder;
     % Leggi i percorsi dei file da RECORDS
@@ -62,15 +91,43 @@ if ~isempty(dir_info)
     % smpTable, rrdTable, and annTable, replace [] (marker for 'all') with
     % the desired number.
     toEndRR = [];  %number of RR intervals for rrdTable and annTable
-    toEndSmp = []; %number of ECG samples to be extracted for smpTable
+    toEndSmp = 5; %number of ECG samples to be extracted for smpTable
 
-    %% Inizializza tabelle vuote
-    comTableFull = tableBuilder('notes', length(record_list));
-    smpTableFull = tableBuilder('meas', 0);
-    dgnTableFull = tableBuilder('autoDiag',0);
-    rrdTableFull = tableBuilder('rrIntDur', 0);
-    annTableFull = tableBuilder('annotations', 0);
-    hrvTableFull = tableBuilder('hrvMetrics', length(record_list));
+    %% Initialization of output tables
+
+    % Tables to be preserved in memory (mostly will be returned as empty if
+    % writeFullCSVs is requested)
+    comTableFull = tableBuilder('notes', 0);
+    if linkTablesWithFKid
+        smpTableFull = tableBuilder('meas', 0);
+        dgnTableFull = tableBuilder('autoDiag',0);
+        rrdTableFull = tableBuilder('rrIntDur', 0);
+        annTableFull = tableBuilder('annotations', 0);
+        hrvTableFull = tableBuilder('hrvMetrics', 0);
+    else
+        smpTableFull = tableBuilder('meas_no_fk', 0);
+        dgnTableFull = tableBuilder('autoDiag_no_fk',0);
+        rrdTableFull = tableBuilder('rrIntDur_no_fk', 0);
+        annTableFull = tableBuilder('annotations_no_fk', 0);
+        hrvTableFull = tableBuilder('hrvMetrics_no_fk', 0);
+    end
+    % Table primary keys
+    idcom = 1;
+    idsmp = 1;
+    iddgn = 1;
+    idrrd = 1;
+    idann = 1;
+    idhrv = 1;
+
+    % Path and flag for output CSV tables
+    if writeFullCSVs
+        outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+        if ~isfolder(outputPath), mkdir(outputPath); end
+    end
+    firstCSVwrite = true;
+
+    % Flag for possible failed RECORDS output
+    firstNotFoundRecord = true;
 
     %% Itera attraverso i percorsi dei file e applica le tue funzioni
     for i = 1:length(record_list)
@@ -94,49 +151,111 @@ if ~isempty(dir_info)
 
         if found
             %% Esegui le funzioni sul file
+
+            % Se e' la prima volta che viene eseguito questo ciclo, bisogna
+            % creare i file CSV delle tabelle in output a cui poi andranno aggiunte le
+            % righe nelle successive iterazioni
+            if firstCSVwrite
+                wvarNames = true; wCSVMode = 'overwrite';
+            else
+                wvarNames = false; wCSVMode = 'append';
+            end
+
             % Estrai notes
-            [comTable, ~]  = COMextraction(record_path, dataset_Name, 'id', i, 'date', dat_str);
-            comTableFull(i,:) = comTable(:,:);
+            [comTable, ~]  = COMextraction(record_path, dataset_Name, 'id', idcom, 'date', dat_str);
+            comTableFull(i,:) = comTable;
+            if writeFullCSVs
+                writetable(comTable, strcat(outputPath,'/comm_',dataset_Name,'.csv'), 'Delimiter',',',...
+                           'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            end
+            if linkTablesWithFKid, fk_id = i; else, fk_id = []; end %Get the FK for the other tables
 
             % Estrai samples
-            smpTable = SMPextraction(record_path, dataset_Name, 'id', 1+height(smpTableFull), 'fk_id', i, ...
+            smpTable = SMPextraction(record_path, dataset_Name, 'id', idsmp, 'fk_id', fk_id, ...
               'toEnd', toEndSmp);
-            smpTableFull((1+height(smpTableFull)):(height(smpTable)+height(smpTableFull)),:) = smpTable(:,:);
+            smpTableFull((1+height(smpTableFull)):(height(smpTable)+height(smpTableFull)),:) = smpTable;
+            if writeFullCSVs
+                writetable(smpTable, strcat(outputPath,'/samp_',dataset_Name,'.csv'), 'Delimiter',',',...
+                           'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            end
 
-            % Extract automated ECG diagnoses
-            dgnTable = DGNextraction(smpTable, 'id', 1+height(dgnTableFull), 'fk_id', i);
-            dgnTableFull((1+height(dgnTableFull)):(height(dgnTable)+height(dgnTableFull)),:) = dgnTable(:,:);
+            % % Extract automated ECG diagnoses
+            % dgnTable = DGNextraction(smpTable, 'id', iddgn, 'fk_id', fk_id);
+            % dgnTableFull((1+height(dgnTableFull)):(height(dgnTable)+height(dgnTableFull)),:) = dgnTable;
+            % if writeFullCSVs
+            %     writetable(dgnTable, strcat(outputPath,'/dgn_',dataset_Name,'.csv'), 'Delimiter',',',...
+            %                'WriteVariableNames',wvarNames,'WriteMode',wMode,'QuoteStrings','all');
+            % end
 
             % Estrai RR-intervals
-            rrdTable = RRextraction(record_path, dataset_Name, 'id', 1+height(rrdTableFull), 'fk_id', i, ...
+            rrdTable = RRextraction(record_path, dataset_Name, 'id', idrrd, 'fk_id', fk_id, ...
               'ext_bool', ext_bool, 'ext', extension, 'toEnd', toEndRR);
-            rrdTableFull((1+height(rrdTableFull)):(height(rrdTable)+height(rrdTableFull)),:) = rrdTable(:,:);
+            rrdTableFull((1+height(rrdTableFull)):(height(rrdTable)+height(rrdTableFull)),:) = rrdTable;
+            if writeFullCSVs
+                writetable(rrdTable, strcat(outputPath,'/rrid_',dataset_Name,'.csv'), 'Delimiter',',',...
+                           'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            end
 
             % Estrai annotations
-            annTable = ANNextraction(record_path, dataset_Name, 'id', 1+height(annTableFull), 'fk_id', i, ...
+            annTable = ANNextraction(record_path, dataset_Name, 'id', idann, 'fk_id', fk_id, ...
                 'ext_bool', ext_bool, 'ext', extension, 'toEnd', toEndRR);
-            annTableFull((1+height(annTableFull)):(height(annTable)+height(annTableFull)),:) = annTable(:,:);
+            annTableFull((1+height(annTableFull)):(height(annTable)+height(annTableFull)),:) = annTable;
+            if writeFullCSVs
+                writetable(annTable, strcat(outputPath,'/anno_',dataset_Name,'.csv'), 'Delimiter',',',...
+                           'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            end
             
             % Estrai metrics
-            [hrvTable, hrvTblVarToSave] = MTRextraction(record_path, dataset_Name, 'id', i, 'fk_id', i, 'ext', extension);
-            hrvTableFull(i,:) = hrvTable(:,:);
+            [hrvTable, hrvTblVarToSave] = MTRextraction(record_path, dataset_Name, 'id', idhrv, 'fk_id', fk_id, 'ext', extension);
+            hrvTableFull(i,:) = hrvTable;
+            if writeFullCSVs
+                writetable(hrvTable(:,hrvTblVarToSave), strcat(outputPath,'/mhrv_',dataset_Name,'.csv'), 'Delimiter',',',...
+                           'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            end
 
             fprintf('%i) Estrazione Dati da %s completata!\n\n', i, recordName);
+
+            % Update the table primary keys for the next record
+            idcom = idcom+1;
+            if ~isempty(smpTable), idsmp = smpTable.ID(end) + 1; end
+            %if ~isempty(dgnTable), iddgn = dgnTable.ID(end) + 1; end
+            if ~isempty(rrdTable), idrrd = rrdTable.ID(end) + 1; end
+            if ~isempty(annTable), idann = annTable.ID(end) + 1; end
+            idhrv = idhrv+1;
+
+            % Cambiamo il flag per effettuare append nelle successive
+            % iterazioni sui CSV in output
+            firstCSVwrite = false;
+
         else
             disp(['Il file non esiste: ' recordName]);
+
+            % Aggiungiamo il record al TXT xon la lista di quelli non processati
+            if firstNotFoundRecord, wTXTMode = 'w'; else, wTXTMode = 'a'; end
+            fid_failedRecords = fopen( strcat(outputPath,'/failedRecords_',dataset_Name,'.txt'), wTXTMode );
+            fprintf(fid_failedRecords,'%s\n',recordName);
+            fclose(fid_failedRecords);
+
+            % Cambiamo il flag per effettuare append in eventuali successive
+            firstNotFoundRecord = false;
         end
     end
 
     %% Scrittura della tabella nel file CSV
-    % outputPath = strcat("C:/Users/Public/Outputs/", dataset_Name);
-    outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
-    if ~isfolder(outputPath), mkdir(outputPath); end
-    writetable(comTableFull, strcat(outputPath,'/comm_',dataset_Name,'.csv'), 'Delimiter',',','WriteVariableNames',true);
-    writetable(smpTableFull, strcat(outputPath,'/samp_',dataset_Name,'.csv'), 'Delimiter',',','WriteVariableNames',true);
-    writetable(rrdTableFull, strcat(outputPath,'/rrid_',dataset_Name,'.csv'), 'Delimiter',',','WriteVariableNames',true);
-    writetable(annTableFull, strcat(outputPath,'/anno_',dataset_Name,'.csv'), 'Delimiter',',','WriteVariableNames',true);
-    writetable(hrvTableFull(:,hrvTblVarToSave), strcat(outputPath,'/mhrv_',dataset_Name,'.csv'), 'Delimiter',',','WriteVariableNames',true);
+    % % outputPath = strcat("C:/Users/Public/Outputs/", dataset_Name);
+    % outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+    % if ~isfolder(outputPath), mkdir(outputPath); end
+    writetable(comTableFull, strcat(outputPath,'/comm_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
+    writetable(smpTableFull, strcat(outputPath,'/samp_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
+    writetable(dgnTableFull, strcat(outputPath,'/dgn_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
+    writetable(rrdTableFull, strcat(outputPath,'/rrid_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
+    writetable(annTableFull, strcat(outputPath,'/anno_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
+    writetable(hrvTableFull(:,hrvTblVarToSave), strcat(outputPath,'/mhrv_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
 else
     disp("Nessun file RECORDS trovato. Impossibile procedere!");
 end
+
+% Move back to the original directory (if changed at the beginning) before exiting
+cd(origPath);
+
 end

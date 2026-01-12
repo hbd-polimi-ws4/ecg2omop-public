@@ -65,9 +65,8 @@ if ~ext_bool
     % avviene correttamente, quindi è preferibile visitare la directory del
     % record ed eseguire direttamente lì la funzione
     if height(s) == 0
-        org = pwd;
         [path, rec, ~] = fileparts(recordName);
-        cd(path);
+        org = cd(path);
         ecgpuwave(rec, ext);
         cd(org);
         % Se ecgpuwave non funziona usa le altre funzioni
