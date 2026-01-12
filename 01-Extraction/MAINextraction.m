@@ -1,4 +1,4 @@
-function [record_list, comTableFull, smpTableFull,dgnTableFull, rrdTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
+function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
 % 
 % [record_list, comTableFull, smpTableFull, dgnTableFull, rrTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
 %  
@@ -91,7 +91,7 @@ if ~isempty(dir_info)
     % smpTable, rrdTable, and annTable, replace [] (marker for 'all') with
     % the desired number.
     toEndRR = [];  %number of RR intervals for rrdTable and annTable
-    toEndSmp = 5; %number of ECG samples to be extracted for smpTable
+    toEndSmp = []; %number of ECG samples to be extracted for smpTable
 
     %% Initialization of output tables
 
@@ -111,7 +111,7 @@ if ~isempty(dir_info)
         annTableFull = tableBuilder('annotations_no_fk', 0);
         hrvTableFull = tableBuilder('hrvMetrics_no_fk', 0);
     end
-    % Table primary keys
+    % Full table primary keys
     idcom = 1;
     idsmp = 1;
     iddgn = 1;
@@ -161,96 +161,92 @@ if ~isempty(dir_info)
                 wvarNames = false; wCSVMode = 'append';
             end
 
-            % Estrai notes
+            % Extract notes and write/append them to CSV
             [comTable, ~]  = COMextraction(record_path, dataset_Name, 'id', idcom, 'date', dat_str);
-            comTableFull(i,:) = comTable;
+            comTableFull = [comTableFull; comTable]; %#ok<AGROW>
             if writeFullCSVs
                 writetable(comTable, strcat(outputPath,'/comm_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
             end
-            if linkTablesWithFKid, fk_id = i; else, fk_id = []; end %Get the FK for the other tables
+            if linkTablesWithFKid, fk_id = idcom; else, fk_id = []; end %Get the FK for the other tables
 
-            % Estrai samples
+            % Extract samples and write/append them to CSV
             smpTable = SMPextraction(record_path, dataset_Name, 'id', idsmp, 'fk_id', fk_id, ...
               'toEnd', toEndSmp);
-            smpTableFull((1+height(smpTableFull)):(height(smpTable)+height(smpTableFull)),:) = smpTable;
             if writeFullCSVs
                 writetable(smpTable, strcat(outputPath,'/samp_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            else
+                smpTableFull = [smpTableFull; smpTable]; %#ok<AGROW>
             end
 
-            % % Extract automated ECG diagnoses
-            % dgnTable = DGNextraction(smpTable, 'id', iddgn, 'fk_id', fk_id);
-            % dgnTableFull((1+height(dgnTableFull)):(height(dgnTable)+height(dgnTableFull)),:) = dgnTable;
-            % if writeFullCSVs
-            %     writetable(dgnTable, strcat(outputPath,'/dgn_',dataset_Name,'.csv'), 'Delimiter',',',...
-            %                'WriteVariableNames',wvarNames,'WriteMode',wMode,'QuoteStrings','all');
-            % end
+            % Extract automated ECG diagnoses and write/append them to CSV
+            dgnTable = DGNextraction(smpTable, record_path, dataset_Name, 'id', iddgn, 'fk_id', fk_id);
+            if writeFullCSVs
+                writetable(dgnTable, strcat(outputPath,'/dgn_',dataset_Name,'.csv'), 'Delimiter',',',...
+                           'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            else
+                dgnTableFull = [dgnTableFull; dgnTable]; %#ok<AGROW>
+            end
 
-            % Estrai RR-intervals
+            % Extract RR-intervals and write/append them to CSV
             rrdTable = RRextraction(record_path, dataset_Name, 'id', idrrd, 'fk_id', fk_id, ...
               'ext_bool', ext_bool, 'ext', extension, 'toEnd', toEndRR);
-            rrdTableFull((1+height(rrdTableFull)):(height(rrdTable)+height(rrdTableFull)),:) = rrdTable;
             if writeFullCSVs
                 writetable(rrdTable, strcat(outputPath,'/rrid_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            else
+                rrdTableFull = [rrdTableFull; rrdTable]; %#ok<AGROW>
             end
 
-            % Estrai annotations
+            % Extract annotations and write/append them to CSV
             annTable = ANNextraction(record_path, dataset_Name, 'id', idann, 'fk_id', fk_id, ...
                 'ext_bool', ext_bool, 'ext', extension, 'toEnd', toEndRR);
-            annTableFull((1+height(annTableFull)):(height(annTable)+height(annTableFull)),:) = annTable;
             if writeFullCSVs
                 writetable(annTable, strcat(outputPath,'/anno_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            else
+                annTableFull = [annTableFull; annTable]; %#ok<AGROW>
             end
             
-            % Estrai metrics
+            % Extract HRV metrics and write/append them to CSV
             [hrvTable, hrvTblVarToSave] = MTRextraction(record_path, dataset_Name, 'id', idhrv, 'fk_id', fk_id, 'ext', extension);
-            hrvTableFull(i,:) = hrvTable;
             if writeFullCSVs
                 writetable(hrvTable(:,hrvTblVarToSave), strcat(outputPath,'/mhrv_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
+            else
+                hrvTableFull = [hrvTableFull; hrvTable]; %#ok<AGROW>
             end
 
             fprintf('%i) Estrazione Dati da %s completata!\n\n', i, recordName);
 
-            % Update the table primary keys for the next record
+            % Update the full table primary keys for the next record
             idcom = idcom+1;
             if ~isempty(smpTable), idsmp = smpTable.ID(end) + 1; end
-            %if ~isempty(dgnTable), iddgn = dgnTable.ID(end) + 1; end
+            if ~isempty(dgnTable), iddgn = dgnTable.ID(end) + 1; end
             if ~isempty(rrdTable), idrrd = rrdTable.ID(end) + 1; end
             if ~isempty(annTable), idann = annTable.ID(end) + 1; end
             idhrv = idhrv+1;
 
-            % Cambiamo il flag per effettuare append nelle successive
-            % iterazioni sui CSV in output
+            % Change the flag to switch the CSV write mode to 'append' for
+            % the following iterations
             firstCSVwrite = false;
 
         else
             disp(['Il file non esiste: ' recordName]);
 
-            % Aggiungiamo il record al TXT xon la lista di quelli non processati
+            % Aggiungiamo il record al TXT con la lista di quelli non processati
             if firstNotFoundRecord, wTXTMode = 'w'; else, wTXTMode = 'a'; end
             fid_failedRecords = fopen( strcat(outputPath,'/failedRecords_',dataset_Name,'.txt'), wTXTMode );
             fprintf(fid_failedRecords,'%s\n',recordName);
             fclose(fid_failedRecords);
 
-            % Cambiamo il flag per effettuare append in eventuali successive
+            % Cambiamo il flag per effettuare append in eventuali
+            % successive iterazioni
             firstNotFoundRecord = false;
         end
     end
 
-    %% Scrittura della tabella nel file CSV
-    % % outputPath = strcat("C:/Users/Public/Outputs/", dataset_Name);
-    % outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
-    % if ~isfolder(outputPath), mkdir(outputPath); end
-    writetable(comTableFull, strcat(outputPath,'/comm_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
-    writetable(smpTableFull, strcat(outputPath,'/samp_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
-    writetable(dgnTableFull, strcat(outputPath,'/dgn_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
-    writetable(rrdTableFull, strcat(outputPath,'/rrid_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
-    writetable(annTableFull, strcat(outputPath,'/anno_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
-    writetable(hrvTableFull(:,hrvTblVarToSave), strcat(outputPath,'/mhrv_',dataset_Name,'_Full.csv'), 'Delimiter',',','WriteVariableNames',true,'QuoteStrings','all');
 else
     disp("Nessun file RECORDS trovato. Impossibile procedere!");
 end

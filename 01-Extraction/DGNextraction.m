@@ -1,4 +1,4 @@
-function autoDiagTable = DGNextraction(smpTable, varargin)
+function autoDiagTable = DGNextraction(smpTable, recordName, dataset_Name, varargin)
 % 
 % autoDiagTable = DGNextraction(smpTable, varargin)
 %  
@@ -43,12 +43,14 @@ function autoDiagTable = DGNextraction(smpTable, varargin)
 %% Input arguments check
 ip = inputParser;
 ip.addRequired('smpTable');
+ip.addRequired('recordName');
+ip.addRequired('dataset_Name');
 ip.addParameter('id', 1, @(x) isnumeric(x) && (isscalar(x)||isempty(x)));
 ip.addParameter('creaCSV', false, @(x) islogical(x));
 ip.addParameter('fk_id', [], @(x) isnumeric(x) && (isscalar(x)||isempty(x)));
 
-% Parsing argomenti
-ip.parse('smpTable', varargin{:});
+% Input arguments parsing
+ip.parse('smpTable','recordName','dataset_Name',varargin{:});
 id = ip.Results.id;
 creaCSV = ip.Results.creaCSV;
 fk_id = ip.Results.fk_id;
@@ -64,14 +66,24 @@ minDuration = 8; %in seconds
 % Extract the timestamps from the ECG samples table and convert them in
 % seconds
 vt = seconds( duration(smpTable.Timestamp,"InputFormat","hh:mm:ss.SSS") );
-ecgDuration = vt(end)-vt(1);
 
-if all( matches(expectedLeads,smpTable.Properties.VariableNames) ) && ecgDuration >= minDuration
+% Calculate the ECG duration by checking the length of non-NaNs data
+% available for the lead with less NaNs
+pAnyEcgChannels = contains(smpTable.Properties.VariableNames,'Lead_');
+validEcgSmp = max( sum(~isnan(smpTable{:,pAnyEcgChannels}),1) );
+ecgDuration = validEcgSmp*(vt(2)-vt(1));
+
+% Check if all the leads required by the diagnosis detector are available
+% and are not entirely made of NaNs
+allExpectedAvailable = all( matches(expectedLeads,smpTable.Properties.VariableNames) );
+pExpectEcgChannels   = matches(smpTable.Properties.VariableNames,expectedLeads);
+allExpectedNoOnlyNaNs= all( any(~isnan(smpTable{:,pExpectEcgChannels}),1) );
+
+if allExpectedAvailable && allExpectedNoOnlyNaNs && ecgDuration >= minDuration
     %% ECG preprocessing as requested by the selected diagnosis detector
     
-    % Retain only the columns containing ECG data
-    pecgChannels = contains(smpTable.Properties.VariableNames,'Lead_');
-    smpTable = smpTable(:,pecgChannels);
+    % Retain only columns containing the necessary ECG data channels
+    smpTable = smpTable(:,pExpectEcgChannels);
     
     % Ensure the ECG channels in smpTable are sorted as expected by the ECG
     % diagnosis detector.
@@ -121,24 +133,62 @@ if all( matches(expectedLeads,smpTable.Properties.VariableNames) ) && ecgDuratio
     end
     
     %% ECG diagnoses extraction
-    % Analyze the ECG data chunk-by-chunk through the diagnoses detector
 
+    % Call the Matlab function that: 1) creates the temporary HDF5 file
+    % with the data structure expected by the ECG diagnoses detector
+    % (shape: ch, samplesPerChunk, chunks); 2) analyzes the ECG exam
+    % chunk-by-chunk; 3) returns the diagnoses detected for each chunk
+    ecg_chunked = permute(ecg_chunked,[3,1,2]);
+    outS = runEcgAutoDiagPy(ecg_chunked);
+
+    % Analyze the predicted labels returned by the diagnoses detector for
+    % each chunk of processed ECG data
+    foundDiag = string([]);
     for k = 1:Nchunks
-
-
+        chunkDiag = strsplit(outS.y_labels(k),'_');
+        foundDiag = unique([foundDiag,chunkDiag]);
     end
+    if length(foundDiag)>1
+        foundDiag(foundDiag=="NoAbnormalities") = [];
+    end
+    nfoundDiag = length(foundDiag);
 
 else
-
+    % If the loaded ECG signal doesn't have the channels or the minimum
+    % duration required by the selected ECG diagnosis detector
+    nfoundDiag = 1;
+    foundDiag = "ImpossibleToEvaluate";
 
 end
 
+%% Creation of the output table
 
+% Table initialization with/without foreign key
+record_Name = tailPathRec(recordName, dataset_Name); %This is needed right below or in the fprintf at the end
+if isempty(fk_id)
+    autoDiagTable = tableBuilder('autoDiag_no_fk', nfoundDiag);
+    autoDiagTable.RecordName = repmat(record_Name,nfoundDiag,1);
+    autoDiagTable.DatasetName = repmat(dataset_Name,nfoundDiag,1);
+else
+    autoDiagTable = tableBuilder('autoDiag', nfoundDiag);
+    autoDiagTable.FK_ID = repmat(fk_id,nfoundDiag,1);
+end
 
+% Fill in the table with all found diagnoses (one row for each)
+autoDiagTable.ID = (id:id+nfoundDiag-1)';
+autoDiagTable.AutoECGDiagnosis = foundDiag';
 
+%% Valuta se creare il file .csv
+if creaCSV
+    % outputPath = strcat("C:/Users/Public/Outputs/", repoName);
+    outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+    if ~isfolder(outputPath), mkdir(outputPath); end
+    outputFileName = strcat(outputPath,'/dgn_',recordName,'.csv');
+    % Scrittura della tabella nel file CSV
+    writetable(autoDiagTable, outputFileName, 'Delimiter',',','WriteVariableNames',true);
+end
 
-
-
-
+%% Messaggio Finale
+fprintf('%i) Extraction of automatically detected ECG diagnoses from %s completed!\n', id, record_Name);
 
 end
