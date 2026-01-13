@@ -39,6 +39,11 @@ RECORDSpath = ip.Results.RECORDSpath;
 writeFullCSVs = ip.Results.writeFullCSVs;
 linkTablesWithFKid = ip.Results.linkTablesWithFKid;
 
+%% Initialize the MHRV toolbox
+% The following initializes the MHRV toolbox, if it hasn't been done
+% yet during the current Matlab session.
+mhrv_init;
+
 %% Check the correct options are set for the WSDB toolbox
 
 % % Load WFDB configuration
