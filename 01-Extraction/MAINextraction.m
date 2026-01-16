@@ -11,12 +11,37 @@ function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, a
 %       table with all the information extracted from a record
 % - smpTableFull
 %       table with signal samples extracted based on lead/derivation and timestamp
+% - dgnTableFull
+%       table with the diagnoses automatically detected from ECG signals
 % - rrdTableFull
 %       table with the time intervals between two R-peaks
 % - annTableFull
 %       table with the extracted annotations
 % - hrvTableFull
 %       table with the various HRV-based metrics that can be computed
+%
+% Optional inputs (Name-value parameters):
+% - RECORDSpath
+%           path where the "RECORDS" file of the Physionet dataset to be
+%           processed can be found. Default: pwd
+% - writeFullCSVs
+%           if this flag is true, one .csv file for each "Full" table
+%           documented above will be written record-by-record, once the
+%           related ECG data have been processed. All the output tables of
+%           this function, except for comTableFull, will be returned empty
+%           to save memory. If this flag is set to false, the opposite will
+%           happen, namely no .csv will be created, but the output tables
+%           will be returned with the expected content. Default: true
+% - linkTablesWithFKid
+%           if this flag is true, output tables other than comTableFull
+%           will be provided with an fk_id column, which presents foreign
+%           keys linking each table entry to the primary key of
+%           comTableFull. Each entry in comTableFull refers to a single ECG
+%           exam in the RECORDS file. If this flag is set to false, foreign
+%           keys will not be used and all tables will be provided with
+%           explicit "RecordName" and "DatasetName" columns. Proceeding
+%           with MAINtransform requires this setting to be true.
+%           Default: true
 %
 % Contributors:
 %   Pierluigi Reali, Ph.D., 2024-2026

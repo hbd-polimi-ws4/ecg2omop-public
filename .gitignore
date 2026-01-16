@@ -211,3 +211,8 @@ __marimo__/
 
 # Data folders
 Datasets/
+Datasets2/
+
+# Currently under-development folders
+02-Transform/
+03-Load/

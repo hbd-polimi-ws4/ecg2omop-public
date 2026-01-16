@@ -35,7 +35,7 @@ function autoDiagTable = DGNextraction(smpTable, recordName, dataset_Name, varar
 %           with the ones in output from this function
 %
 % Contributors:
-%   Pierluigi Reali, Ph.D., 2025-2026
+%   Pierluigi Reali, Ph.D., 2024-2026
 %
 % Affiliation:
 %   Department of Electronics Information and Bioengineering, Politecnico di Milano
