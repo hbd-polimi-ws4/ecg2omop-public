@@ -24,8 +24,12 @@ datasets = {'lobachevsky-university-electrocardiography-database-1.0.1','https:/
             'st-petersburg-incart-12-lead-arrhythmia-database-1.0.0','https://physionet.org/content/incartdb/get-zip/1.0.0/'
             't-wave-alternans-challenge-database-1.0.0','https://physionet.org/content/twadb/get-zip/1.0.0/'};
 
+% Define the output folder for the CSV tables produced by the Extraction
+% phase (if it doesn't exist, it'll be created)
+outputCSVpath = 'Outputs2/';
+
 %% Adding all paths needed to run the ETL pipeline
-setup;
+setup_ecg2omop();
 
 %% Download Physionet ECG datasets
 
@@ -102,7 +106,13 @@ end
 
 
 %% Execute the Extract phase on all datasets
-
+processedRecAll = tableBuilder('notes',0);
+for ds = 1:size(datasets,1)
+    dsName = datasets{ds,1};
+    dsPath = fullfile(dataPath,dsName);
+    [~,processedRec] = MAINextraction('RECORDSpath',dsPath,'outputPath',outputCSVpath);
+    processedRecAll = [processedRecAll; processedRec]; %#ok<AGROW>
+end
 
 %% Execute the Transform phase on all datasets
 

@@ -212,7 +212,10 @@ __marimo__/
 # Data folders
 Datasets/
 Datasets2/
+Outputs/
+Outputs2/
+02-Transform/ImportFolder/
+02-Transform/Mappings/
 
 # Currently under-development folders
-02-Transform/
 03-Load/

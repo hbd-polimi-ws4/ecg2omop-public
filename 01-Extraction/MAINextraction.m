@@ -55,12 +55,14 @@ function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, a
 % All the inputs to this function are optional
 ip = inputParser;
 ip.addParameter( 'RECORDSpath', pwd, @(x) (isstring(x) && isscalar(x)) || (ischar(x) && isvector(x)) );
+ip.addParameter( 'outputPath', '', @(x) (isstring(x) && isscalar(x)) || (ischar(x) && isvector(x)) )
 ip.addParameter( 'writeFullCSVs', true, @(x) islogical(x) && isscalar(x) );
 ip.addParameter( 'linkTablesWithFKid', true, @(x) islogical(x) && isscalar(x) )
 
 % Input arguments parsing
 ip.parse(varargin{:});
 RECORDSpath = ip.Results.RECORDSpath;
+outputPath = ip.Results.outputPath;
 writeFullCSVs = ip.Results.writeFullCSVs;
 linkTablesWithFKid = ip.Results.linkTablesWithFKid;
 
@@ -92,8 +94,8 @@ if ~contains(path,funPath)
     addpath(funPath);
 end
 
-% Move to the RECORDS file path given as input (or remain in the current
-% directory otherwise)
+% Move to the RECORDS file path given as input (remain in the current
+% directory if none was given)
 origPath = cd(RECORDSpath);
 
 % Look for the RECORDS file in the current directory
@@ -151,12 +153,26 @@ if ~isempty(dir_info)
 
     % Path and flag for output CSV tables
     if writeFullCSVs
-        outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+        if isempty(outputPath)
+            % If outputPath is not provided as an input argument, the
+            % output CSVs are produced in a subfolder inside the processed
+            % dataset's folder
+            outputPath = fullfile(pwd,'Outputs');
+        else
+            % If outputPath is provided as an input argument, it might
+            % either be a relative (in relation to the path from where the
+            % function was called) or an absolute path. In the first case,
+            % it must be fixed to work correctly in this function, as we
+            % had to "cd" to the dataset's directory to use WFDB functions.
+            if ~isAbsolutePath(outputPath)
+                outputPath = fullfile(origPath,outputPath);
+            end
+        end
         if ~isfolder(outputPath), mkdir(outputPath); end
     end
     firstCSVwrite = true;
 
-    % Flag for possible failed RECORDS output
+    % Flag for potentially failed RECORDS output
     firstNotFoundRecord = true;
 
     %% Itera attraverso i percorsi dei file e applica le tue funzioni
