@@ -209,6 +209,9 @@ __marimo__/
 # MATLAB
 *.asv
 
+# Temp LibreOffice files
+.~lock.*
+
 # Data folders
 Datasets/
 Datasets2/
@@ -217,5 +220,6 @@ Outputs2/
 02-Transform/ImportFolder/
 02-Transform/Mappings/
 
-# Currently under-development folders
+# Currently under-development
 03-Load/
+*_forTesting.xlsx
