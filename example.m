@@ -110,7 +110,8 @@ processedRecAll = tableBuilder('notes',0);
 for ds = 1:size(datasets,1)
     dsName = datasets{ds,1};
     dsPath = fullfile(dataPath,dsName);
-    [~,processedRec] = MAINextraction('RECORDSpath',dsPath,'outputPath',outputCSVpath);
+    [~,processedRec] = MAINextraction('RECORDSpath',dsPath,'outputPath',outputCSVpath,...
+                                      'toEndSmp',10);
     processedRecAll = [processedRecAll; processedRec]; %#ok<AGROW>
 end
 

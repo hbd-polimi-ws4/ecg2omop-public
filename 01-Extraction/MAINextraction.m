@@ -42,6 +42,30 @@ function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, a
 %           explicit "RecordName" and "DatasetName" columns. Proceeding
 %           with MAINtransform requires this setting to be true.
 %           Default: true
+% - toEndSmp
+%           defines the maximum number of ECG samples per ECG recording
+%           that will be extracted in the smpTableFull table (or relevant CSV
+%           file). This option is useful to spare system memory and
+%           processing time. If there is no interest in exporting the
+%           pre-processed signals in a tabular form (e.g., to insert them
+%           into database), it is advised to use a small value for this
+%           input argument (e.g., 10) to speed-up the Transform step of the
+%           ETL pipeline.
+%           Default: [], which stands for 'all available samples'.
+% - toEndRR
+%           defines the maximum number of RR intervals per ECG recording
+%           that will be extracted in the rrdTableFull table (or relevant CSV
+%           file). As opposed to the previous one, this option doesn't have
+%           a real impact on system storage or resource usage and can be
+%           left at the default value.
+%           Default: [], which stands for 'all available RR intervals'.
+% - toEndAnn
+%           defines the maximum number of beat annotations per ECG recording
+%           that will be extracted in the annTableFull table (or relevant
+%           CSV file). Like toEndRR, this option doesn't have a real impact
+%           on system storage or resource usage and can be left at the
+%           default value.
+%           Default: [], which stands for 'all available beat annotations'.
 %
 % Contributors:
 %   Pierluigi Reali, Ph.D., 2024-2026
@@ -58,6 +82,9 @@ ip.addParameter( 'RECORDSpath', pwd, @(x) (isstring(x) && isscalar(x)) || (ischa
 ip.addParameter( 'outputPath', '', @(x) (isstring(x) && isscalar(x)) || (ischar(x) && isvector(x)) )
 ip.addParameter( 'writeFullCSVs', true, @(x) islogical(x) && isscalar(x) );
 ip.addParameter( 'linkTablesWithFKid', true, @(x) islogical(x) && isscalar(x) )
+ip.addParameter( 'toEndSmp', [], @(x) isnumeric(x) && isscalar(x) )
+ip.addParameter( 'toEndRR', [], @(x) isnumeric(x) && isscalar(x) )
+ip.addParameter( 'toEndAnn', [], @(x) isnumeric(x) && isscalar(x) )
 
 % Input arguments parsing
 ip.parse(varargin{:});
@@ -65,6 +92,10 @@ RECORDSpath = ip.Results.RECORDSpath;
 outputPath = ip.Results.outputPath;
 writeFullCSVs = ip.Results.writeFullCSVs;
 linkTablesWithFKid = ip.Results.linkTablesWithFKid;
+toEndSmp = ip.Results.toEndSmp;
+toEndRR = ip.Results.toEndRR;
+toEndAnn = ip.Results.toEndAnn;
+
 
 %% Initialize the MHRV toolbox
 % The following initializes the MHRV toolbox, if it hasn't been done
@@ -119,11 +150,6 @@ if ~isempty(dir_info)
     % Recupera l'estensione dall'ANNOTATORS file, se presente
     [extension, ~, ext_bool] = EXTextraction();
 
-    % FOR DEBUG: To extract only a specific number of samples per subject for
-    % smpTable, rrdTable, and annTable, replace [] (marker for 'all') with
-    % the desired number.
-    toEndRR = [];  %number of RR intervals for rrdTable and annTable
-    toEndSmp = []; %number of ECG samples to be extracted for smpTable
 
     %% Initialization of output tables
 
@@ -218,12 +244,17 @@ if ~isempty(dir_info)
 
             % Extract samples and write/append them to CSV
             smpTable = SMPextraction(record_path, dataset_Name, 'id', idsmp, 'fk_id', fk_id, ...
-              'toEnd', toEndSmp);
+              'toEnd', []);
+            if isempty(toEndSmp)
+                rf = height(smpTable);
+            else
+                rf = toEndSmp;
+            end
             if writeFullCSVs
-                writetable(smpTable, strcat(outputPath,'/samp_',dataset_Name,'.csv'), 'Delimiter',',',...
+                writetable(smpTable(1:rf,:), strcat(outputPath,'/samp_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');
             else
-                smpTableFull = [smpTableFull; smpTable]; %#ok<AGROW>
+                smpTableFull = [smpTableFull; smpTable(1:rf,:)]; %#ok<AGROW>
             end
 
             % Extract automated ECG diagnoses and write/append them to CSV
@@ -247,7 +278,7 @@ if ~isempty(dir_info)
 
             % Extract annotations and write/append them to CSV
             annTable = ANNextraction(record_path, dataset_Name, 'id', idann, 'fk_id', fk_id, ...
-                'ext_bool', ext_bool, 'ext', extension, 'toEnd', toEndRR);
+                'ext_bool', ext_bool, 'ext', extension, 'toEnd', toEndAnn);
             if writeFullCSVs
                 writetable(annTable, strcat(outputPath,'/anno_',dataset_Name,'.csv'), 'Delimiter',',',...
                            'WriteVariableNames',wvarNames,'WriteMode',wCSVMode,'QuoteStrings','all');

@@ -48,7 +48,8 @@ for CSVname = string({CSVList.name})
     % Read data from the current CSV file and import them in a table
     tableCurr = readtable(CSVname,'Delimiter',',','DecimalSeparator','.',...
                           'NumHeaderLines',0,'ReadVariableNames',true,...
-                          'TextType','string','DatetimeType','text');
+                          'TextType','string','DatetimeType','text',...
+                          'DurationType','text');
     currVars = tableCurr.Properties.VariableNames;
 
     % If the current table has a foreign key column (FK_ID), map its

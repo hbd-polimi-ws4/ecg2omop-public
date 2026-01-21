@@ -116,12 +116,18 @@ if isempty(hrvTableFull)
 end
 
 
+%% Load ECG samples tables
+
+% Import ECG samples tables if no smpTableFull has been provided as input
+if isempty(smpTableFull)
+    smpTableFull = importExtractedTables('samp_',smpTableFull,false,tIDmap);
+end
+
+
 %% Assemble OMOP CDM person table
 % CONSTRAINTS: At least one record of Person is required for each patient.
 % Multiple ECG exams (i.e., rows of comTableFull) can belong to the same
 % record of Person.
-
-% sOMOPtables.person, sOMOPtables.condition_era, sOMOPtables.measurement, sOMOPtables.observation
 
 % Define the required attributes based on OMOP CDM v5.4 specifications
 % Review specifications here: https://ohdsi.github.io/CommonDataModel/cdm54.html#person
@@ -157,7 +163,7 @@ comTableFull.Patient(pMiss) = patient_names;
 % database.
 % Furthermore, we can map each patient to their exams in the comTableFull,
 % which we will need to populate the Procedure table (person2exam_FK).
-[~,iUnique,person2exam_FK] = unique(comTableFull.Patient,'stable');
+[~,iUnique,person2exam] = unique(comTableFull.Patient,'stable');
 comTableFullUnique = comTableFull(iUnique,:);
 nrec = height(comTableFullUnique);
 person = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
@@ -210,13 +216,12 @@ comTableFullUnique.Race = repmat("missing",nrec,1);
 person.race_concept_id = mapToConceptsFromVocab('person','race_concept_id',comTableFullUnique.Race);
 
 % Furthermore, we can map each patient to their exams in the comTableFull,
-% which we will need to populate the Procedure table.
-sIDmapOMOPtables.person2exam = person2exam_FK;
+% which we will need to populate the procedure_occurrence table and for
+% other operations
+comTableFull.person_id_FK = person2exam;
 
 % Add the table to the output struct
 sOMOPtables.person = person;
-
-return;
 
 %%%%% PERSON TABLE COMPLETED AND CHECKED! I SHOULD MOVE THIS TO A SEPARATE FUNCTION, ONE
 %%%%% FOR EACH OMOP TABLE TO MAKE THINGS LESS MESSY.
@@ -224,10 +229,279 @@ return;
 %%%%% SCRIPT'S STRUCTURE!
 
 
-%% Assemble OMOP CDM ... table
+%% Assemble OMOP CDM observation_period table
+
+% CONSTRAINTS: At least one record of observation_period is required for
+% each record of person. Multiple ECG exams (i.e., rows of comTableFull)
+% can belong to the same record of observation_period. With our datasets,
+% based on the advice reported in the source below, it seems reasonable to
+% define only one observation period for each patient, including the time
+% span between the first and last ECG exam of the same patient.
+% Source: The "ETL Conventions" section of the following page:
+%    https://ohdsi.github.io/CommonDataModel/cdm54.html#observation_period
+
+% Define the required attributes based on OMOP CDM v5.4 specifications
+reqAttrs = {'observation_period_id','int64'
+            'person_id','int64'
+            'observation_period_start_date','string'
+            'observation_period_end_date','string'
+            'period_type_concept_id','int64'};
+% Define optional attributes we find useful for our data (there are no
+% optional attributes for the observation_period table)
+optAttrs = {};
+% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
+allAttrs = [reqAttrs; optAttrs];
+
+%--------------------------------------------------------------------------
+% observation_period.person_id
+% Since we are assuming one record of observation_period for each record of
+% person, let's initialize a table with the same number of rows of the
+% "person" one
+nrec = height(person);
+observation_period = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
+                           'VariableNames',allAttrs(:,1));
+observation_period.person_id = person.person_id;
+
+%--------------------------------------------------------------------------
+% observation_period.observation_period_id
+observation_period.observation_period_id = (1:height(observation_period))';
+
+%--------------------------------------------------------------------------
+% observation_period.observation_period_start_date
+% observation_period.observation_period_end_date
+% For each patient, find the minimum beginning (start_date) and the
+% maximum end (end_date) of their ECG recordings.
+vdtStart = datetime(comTableFull.RecordDate,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+vdtEnd   = datetime(comTableFull.RecordEnd,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+vdtMinStart = splitapply(@min,vdtStart,comTableFull.person_id_FK);
+vdtMaxEnd   = splitapply(@max,vdtEnd,comTableFull.person_id_FK);
+% Convert back to string to store the found dates in the observation_period
+% table. Keep only the "date" part, as we don't need "time" in this field.
+observation_period.observation_period_start_date = string(vdtMinStart,'uuuu-MM-dd');
+observation_period.observation_period_end_date = string(vdtMaxEnd,'uuuu-MM-dd');
+
+%--------------------------------------------------------------------------
+% observation_period.period_type_concept_id
+% Look for adequate period_type_concept_ids here:
+%   https://athena.ohdsi.org/search-terms/terms?domain=Type+Concept&standardConcept=Standard&page=1&pageSize=15&query=
+% and more info here:
+%   https://github.com/OHDSI/Vocabulary-v5.0/wiki/Vocab.-TYPE_CONCEPT#instructions
+% Suitable definitions in our case:
+%  - EHR encounter record (32827): A patient encounter is an interaction between a
+%    patient and healthcare provider(s) for the purpose of providing
+%    healthcare service(s) or assessing the health status of a patient.
+%  - EHR physical examination (32836): Record of findings obtained during the
+%    physical examination of a patient.
+% "EHR encounter record" sounds more appropriate in our case, since it is
+% less specific, hence more flexible when we don't know the exact reason
+% that led to the ECG exam, as for most Physionet datasets.
+obsPeriodType = repmat("missing",nrec,1);
+observation_period.period_type_concept_id = ...
+       mapToConceptsFromVocab('observation_period','period_type_concept_id',obsPeriodType);
+
+% Add the table to the output struct
+sOMOPtables.observation_period = observation_period;
+
+
+%% Assemble OMOP CDM visit_occurrence table
+
+% CONSTRAINTS AND ASSUMPTIONS:
+% Visit records of the same person should never overlap.
+% Multiple ECG exams (i.e., rows of comTableFull) can belong to the same
+% record of visit_occurrence.
+% Among the accepted types of visit (visit_concept_id), the most suited
+% ones for visits focused on ECG examinations are "Outpatient Visit" or
+% "Laboratory Visit", both accepting durations within one day. Between
+% these, "Laboratory Visit" seems more appropriate as its description
+% explicitly states "Patient visiting dedicated institution... for the
+% purpose of a Measurement", and the Extraction phase of our ETL
+% produced indeed some entries for the Measurement table.
+% Since the visit_start_date and visit_end_date must match in our case and
+% ECG examinations should never last longer than 24 hours for Holter's
+% recordings, it sounds reasonable to assume the start date of an exam as
+% the start date of a visit. Multiple ECG exams of the same patient with
+% the same start date will be linked to the same visit.
+% Source: The "ETL Conventions" section of the following page:
+%    https://ohdsi.github.io/CommonDataModel/cdm54.html#visit_occurrence
+
+% Define the required attributes based on OMOP CDM v5.4 specifications
+reqAttrs = {'visit_occurrence_id','int64'
+            'person_id','int64'
+            'visit_concept_id','int64'
+            'visit_start_date','string'
+            'visit_end_date','string'
+            'visit_type_concept_id','int64'};
+% Define optional attributes we find useful for our data
+optAttrs = {};
+% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
+allAttrs = [reqAttrs; optAttrs];
+
+%--------------------------------------------------------------------------
+% visit_occurrence.visit_start_date
+% Define the number of visit records we need, based on the number of unique
+% dates we can find for the beginning of each patient's ECG exams.
+vdtStart = datetime(comTableFull.RecordDate,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+vdtStart = dateshift(vdtStart,'start','day'); %To ignore time when applying the unique function 
+cVisitDatesPerPerson = splitapply(@(x) {unique(x)},vdtStart,comTableFull.person_id_FK);
+cVisitDatesPerPerson = cellfun(@(c) char(c,'uuuu-MM-dd'),cVisitDatesPerPerson,...
+                               'UniformOutput',false);
+vVisitDates = string( cell2mat(cVisitDatesPerPerson) );
+nrec = length(vVisitDates);
+visit_occurrence = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
+                         'VariableNames',allAttrs(:,1));
+visit_occurrence.visit_start_date = vVisitDates;
+visit_occurrence.visit_occurrence_id = (1:nrec)';
+
+%--------------------------------------------------------------------------
+% visit_occurrence.person_id
+% Reconstruct the association between each visit and the involved patient
+% (i.e., the person_id foreign key)
+ri = 1; rf = 0;
+for k = 1:length(cVisitDatesPerPerson)
+    nVisitsPerPerson = size(cVisitDatesPerPerson{k},1);
+    rf = rf + nVisitsPerPerson;
+    visit_occurrence.person_id(ri:rf) = repmat(person.person_id(k),nVisitsPerPerson,1);
+    ri = rf+1;
+end
+
+%--------------------------------------------------------------------------
+% visit_occurrence.visit_type_concept_id
+% The list of accepted concepts for this field is the same as seen for
+% observation_period.period_type_concept_id.
+% Here we use the same concept selected for observation_period.period_type_concept_id, 
+% for consistency.
+visitType = repmat("missing",nrec,1);
+visit_occurrence.visit_type_concept_id = ...
+      mapToConceptsFromVocab('visit_occurrence','visit_type_concept_id',visitType);
+
+%--------------------------------------------------------------------------
+% visit_occurrence.visit_concept_id
+% visit_occurrence.visit_end_date
+visitType2 = repmat("missing",nrec,1);
+visit_occurrence.visit_concept_id = ...
+      mapToConceptsFromVocab('visit_occurrence','visit_concept_id',visitType2);
+% Given the visit type we selected, which must end within one day, this is
+% the only allowed choice
+visit_occurrence.visit_end_date = vVisitDates;
+
+% Add the table to the output struct
+sOMOPtables.visit_occurrence = visit_occurrence;
+
+
+%% Assemble OMOP CDM procedure_occurrence table
+
+% CONSTRAINTS AND ASSUMPTIONS:
+% Each ECG recording produces a separate record of the procedure_occurrence
+% table.
+% Each procedure record must be linked to one visit, but multiple
+% procedures can be related to the same visit.
+% Source:
+%    https://ohdsi.github.io/CommonDataModel/cdm54.html#procedure_occurrence
+
+% Define the required attributes based on OMOP CDM v5.4 specifications
+reqAttrs = {'procedure_occurrence_id','int64'
+            'person_id','int64'
+            'procedure_concept_id','int64'
+            'procedure_date','string'
+            'procedure_type_concept_id','string'};
+% Define optional attributes we find useful for our data
+optAttrs = {'procedure_datetime','string'
+            'procedure_end_date','string'
+            'procedure_end_datetime','string'
+            'visit_occurrence_id','int64'};
+% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
+allAttrs = [reqAttrs; optAttrs];
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.procedure_occurrence_id
+% Initialize the table with a number of records equal to the number of
+% available ECG recordings
+nrec = height(comTableFull);
+procedure_occurrence = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
+                             'VariableNames',allAttrs(:,1));
+procedure_occurrence.procedure_occurrence_id = (1:nrec)';
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.procedure_date
+% procedure_occurrence.procedure_datetime
+% procedure_occurrence.procedure_end_date
+% procedure_occurrence.procedure_end_datetime
+% Define start and end dates and times of each ECG recording
+vdtStart = datetime(comTableFull.RecordDate,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+vdtEnd   = datetime(comTableFull.RecordEnd,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+procedure_occurrence.procedure_date = string(vdtStart,'uuuu-MM-dd');
+procedure_occurrence.procedure_datetime = string(vdtStart,'uuuu-MM-dd HH:mm:ss');
+procedure_occurrence.procedure_end_date = string(vdtEnd,'uuuu-MM-dd');
+procedure_occurrence.procedure_end_datetime = string(vdtEnd,'uuuu-MM-dd HH:mm:ss');
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.person_id
+% Link each ECG recording procedure to the patient it belongs to
+procedure_occurrence.person_id = comTableFull.person_id_FK;
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.visit_occurrence_id
+% Link each ECG recording procedure to the visit it belongs to
+procedure_occurrence.visit_occurrence_id = ...
+       arrayfun(@(pid,dt) visit_occurrence.visit_occurrence_id(visit_occurrence.person_id==pid & ...
+                visit_occurrence.visit_start_date==dt),...
+                procedure_occurrence.person_id, procedure_occurrence.procedure_date);
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.procedure_type_concept_id
+% The list of accepted concepts for this field is the same as seen for
+% observation_period.period_type_concept_id.
+% Here we use the same concept selected for observation_period.period_type_concept_id, 
+% for consistency.
+procedureType = repmat("missing",nrec,1);
+procedure_occurrence.procedure_type_concept_id = ...
+      mapToConceptsFromVocab('procedure_occurrence','procedure_type_concept_id',procedureType);
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.procedure_concept_id
+% Describe the procedure type based on salient characteristics of the ECG
+% recording. We rely on the following logic:
+%   - Short recordings (< 30 minutes), with non-standard lead
+%     positioning: "Ambulatory ECG"
+%   - Short recordings (< 30 minutes), with 12 standard leads:
+%     "12 Lead ECG"
+%   - Long recordings (>= 30 minutes), with or without standard
+%     lead positioning: "24 Hour ECG". This perfectly matches the case of
+%     the St Petersburg INCART 12-lead Arrhythmia Database, where multiple
+%     30-minute ECG excerpts extracted from Holter records are considered.
+% Define rules
+stdLeadsNames = {'Lead_I','Lead_II','Lead_III','Lead_aVF','Lead_aVR','Lead_aVL',...
+                 'Lead_V1','Lead_V2','Lead_V3','Lead_V4','Lead_V5','Lead_V6'};
+vAll12leads = splitapply( @(m) all(all(~isnan(m))), smpTableFull{:,stdLeadsNames}, smpTableFull.FK_ID);
+vRecDur = vdtEnd - vdtStart;
+vShortRecs = minutes(vRecDur)<30;
+% Define SourceTerms based on the above rules. These SourceTerms will then
+% be mapped to the desired OMOPconceptIDs following the relations defined
+% in the imported vocabularies
+procedureType2 = repmat("AmbulatoryECG",nrec,1);
+procedureType2(vAll12leads & vShortRecs) = "12LeadECG";
+procedureType2(~vShortRecs) = "HolterECG";
+procedure_occurrence.procedure_concept_id = ...
+      mapToConceptsFromVocab('procedure_occurrence','procedure_concept_id',procedureType2);
+
+% Add the table to the output struct
+sOMOPtables.procedure_occurrence = procedure_occurrence;
+
+
+%% Assemble OMOP CDM measurement table
+
+
+
+%% Assemble OMOP CDM condition_occurrence table
+% Qui rientrano anche le diagnosi automatiche SE QUELLE INDIVIDUATE NEL
+% NOSTRO CASO FANNO PARTE DEL DOMINIO "CONDITIONS"; ALTRIMENTI, DOVREMO
+% INSERIRLE IN OBSERVATIONS ("tutto cio' che non rientra nel dominio di una
+% tabella specifica deve essere inserito come observations).
 
 
 %% Changes and checks for all the generated OMOP tables
+
+return;
 
 cOMOPtableNames = fieldnames(sOMOPtables);
 
