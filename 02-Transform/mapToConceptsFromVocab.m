@@ -72,7 +72,7 @@ vSourceTerms = fillmissing(vSourceTerms,'constant',"missing");
 
 % Associate the correct output OMOPconceptID to each SourceCode
 tvocabSubset = tvocab(tvocab.TableName==TableName & tvocab.FieldName==FieldName, :);
-vOutConceptIDs = arrayfun(@(s) tvocabSubset.OMOPconceptID(tvocabSubset.SourceTerm==s),...
+vOutConceptIDs = arrayfun(@(s) tvocabSubset.OMOPconceptID( strcmpi(tvocabSubset.SourceTerm,s)),...
                           vSourceTerms,'UniformOutput',false);
 
 % Check if any of the cell of the output array is empty, as this means that
