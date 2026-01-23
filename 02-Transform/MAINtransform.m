@@ -137,22 +137,6 @@ end
 % Multiple ECG exams (i.e., rows of comTableFull) can belong to the same
 % record of Person.
 
-% Define the required attributes based on OMOP CDM v5.4 specifications
-% Review specifications here: https://ohdsi.github.io/CommonDataModel/cdm54.html#person
-reqAttrs = {'person_id','int64'
-            'gender_concept_id','int64'
-            'year_of_birth','int64'
-            'race_concept_id','int64'
-            'ethnicity_concept_id','int64'};
-% Define optional attributes we find useful for our data
-optAttrs = {'person_source_value','string'
-            'gender_source_value','string'
-            'race_source_value','string'
-            'ethnicity_source_value','string'};
-% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
-allAttrs = [reqAttrs; optAttrs];
-
-
 % Map the information from the tables obtained during the Extraction phase
 % (Transform phase of the ETL). Read the appropriate concept IDs from file when
 % needed.
@@ -177,8 +161,7 @@ comTableFull.Patient(pMiss) = patient_names;
 [~,iUnique,person2exam] = unique(comTableFull.Patient,'stable');
 comTableFullUnique = comTableFull(iUnique,:);
 nrec = height(comTableFullUnique);
-person = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
-               'VariableNames',allAttrs(:,1)); %Initialize the "person" table based on the number of unique patients
+person = tableBuilderOMOP('person',nrec); %Initialize the "person" table based on the number of unique patients
 
 %--------------------------------------------------------------------------
 % person.person_source_value
@@ -189,7 +172,7 @@ person.person_source_value = comTableFullUnique.Patient;
 % tables generated during the Transform phase; definitive primary keys will
 % be generated during the Load phase, based on the records already
 % available in the database)
-person.person_id = (1:height(person))';
+person.person_id = (1:nrec)';
 
 %--------------------------------------------------------------------------
 % person.year_of_birth
@@ -219,11 +202,11 @@ person.gender_concept_id = mapToConceptsFromVocab('person','gender_concept_id',p
 % person.ethnicity_concept_id
 % person.ethnicity_source_value
 % Since this is a mandatory field in the Person table and there is no
-% "escape" value to use in case it is missing, which is honestly weird, we
-% decided to use the OMOPconceptID for "More than one ethnicity" in our
-% case, as we don't have this information in our datasets. To preserve the
-% original meaning we are giving to this field clearly, we also store
-% "unknown" as the source value for this property.
+% standard "escape" value to use in case it is missing, which is honestly
+% weird, we decided to use the OMOPconceptID for "More than one ethnicity"
+% in our case, as we don't have this information in our datasets. To
+% clearly preserve the original meaning, we also store "unknown" as the
+% source value for this property.
 % Source:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#person
 person.ethnicity_source_value = repmat("unknown",nrec,1);
@@ -269,26 +252,13 @@ sOMOPtables.person = person;
 % Source: The "ETL Conventions" section of the following page:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#observation_period
 
-% Define the required attributes based on OMOP CDM v5.4 specifications
-reqAttrs = {'observation_period_id','int64'
-            'person_id','int64'
-            'observation_period_start_date','string'
-            'observation_period_end_date','string'
-            'period_type_concept_id','int64'};
-% Define optional attributes we find useful for our data (there are no
-% optional attributes for the observation_period table)
-optAttrs = {};
-% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
-allAttrs = [reqAttrs; optAttrs];
-
 %--------------------------------------------------------------------------
 % observation_period.person_id
 % Since we are assuming one record of observation_period for each record of
 % person, let's initialize a table with the same number of rows of the
 % "person" one
 nrec = height(person);
-observation_period = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
-                           'VariableNames',allAttrs(:,1));
+observation_period = tableBuilderOMOP('observation_period',nrec);
 observation_period.person_id = person.person_id;
 
 %--------------------------------------------------------------------------
@@ -353,20 +323,9 @@ sOMOPtables.observation_period = observation_period;
 % Source: The "ETL Conventions" section of the following page:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#visit_occurrence
 
-% Define the required attributes based on OMOP CDM v5.4 specifications
-reqAttrs = {'visit_occurrence_id','int64'
-            'person_id','int64'
-            'visit_concept_id','int64'
-            'visit_start_date','string'
-            'visit_end_date','string'
-            'visit_type_concept_id','int64'};
-% Define optional attributes we find useful for our data
-optAttrs = {};
-% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
-allAttrs = [reqAttrs; optAttrs];
-
 %--------------------------------------------------------------------------
 % visit_occurrence.visit_start_date
+% visit_occurrence.visit_occurrence_id
 % Define the number of visit records we need, based on the number of unique
 % dates we can find for the beginning of each patient's ECG exams.
 vdtStart = datetime(comTableFull.RecordDate,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
@@ -376,8 +335,7 @@ cVisitDatesPerPerson = cellfun(@(c) char(c,'uuuu-MM-dd'),cVisitDatesPerPerson,..
                                'UniformOutput',false);
 vVisitDates = string( cell2mat(cVisitDatesPerPerson) );
 nrec = length(vVisitDates);
-visit_occurrence = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
-                         'VariableNames',allAttrs(:,1));
+visit_occurrence = tableBuilderOMOP('visit_occurrence',nrec);
 visit_occurrence.visit_start_date = vVisitDates;
 visit_occurrence.visit_occurrence_id = (1:nrec)';
 
@@ -427,27 +385,12 @@ sOMOPtables.visit_occurrence = visit_occurrence;
 % Source:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#procedure_occurrence
 
-% Define the required attributes based on OMOP CDM v5.4 specifications
-reqAttrs = {'procedure_occurrence_id','int64'
-            'person_id','int64'
-            'procedure_concept_id','int64'
-            'procedure_date','string'
-            'procedure_type_concept_id','string'};
-% Define optional attributes we find useful for our data
-optAttrs = {'procedure_datetime','string'
-            'procedure_end_date','string'
-            'procedure_end_datetime','string'
-            'visit_occurrence_id','int64'};
-% Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
-allAttrs = [reqAttrs; optAttrs];
-
 %--------------------------------------------------------------------------
 % procedure_occurrence.procedure_occurrence_id
 % Initialize the table with a number of records equal to the number of
 % available ECG recordings
 nrec = height(comTableFull);
-procedure_occurrence = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
-                             'VariableNames',allAttrs(:,1));
+procedure_occurrence = tableBuilderOMOP('procedure_occurrence',nrec);
 procedure_occurrence.procedure_occurrence_id = comTableFull.ID;
 % To ensure this direct link between records of comTableFull and procedure
 % tables is written in stone:
@@ -546,19 +489,6 @@ sOMOPtables.procedure_occurrence = procedure_occurrence;
 % OMOPconceptIDs.
 % Source:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#condition_occurrence
-
-% Define the required attributes based on OMOP CDM v5.4 specifications
-reqAttrs = {'condition_occurrence_id','int64'
-            'person_id','int64'
-            'condition_concept_id','int64'
-            'condition_start_date','string'
-            'condition_type_concept_id','int64'};
-% Define optional attributes we find useful for our data
-optAttrs = {'visit_occurrence_id','int64'
-            'condition_source_value','string'};
-% Combine required and optional attributes (the table will be initialized
-% when the number of rows we need is known)
-allAttrs = [reqAttrs; optAttrs];
 
 %--------------------------------------------------------------------------
 % Extract the diagnoses manually annotated by clinicians or related to
@@ -668,8 +598,7 @@ conditions = sortrows(conditions,'visit_id_FK'); %Just to help review the table.
 % Map the data from the combined temporary table into the standard
 % condition_occurrence table.
 nrec = height(conditions);
-condition_occurrence = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
-                             'VariableNames',allAttrs(:,1));
+condition_occurrence = tableBuilderOMOP('condition_occurrence',nrec);
 condition_occurrence.person_id = conditions.person_id_FK;
 condition_occurrence.visit_occurrence_id = conditions.visit_id_FK;
 condition_occurrence.condition_start_date = conditions.RecordDate;
@@ -792,25 +721,6 @@ sOMOPtables.condition_occurrence = condition_occurrence;
 % di fine e inizio procedura per quello).
 % #########################################################################
 
-% Define the required attributes based on OMOP CDM v5.4 specifications
-reqAttrs = {'measurement_id','int64'
-            'person_id','int64'
-            'measurement_concept_id','int64'
-            'measurement_date','string'
-            'measurement_type_concept_id','int64'};
-% Define optional attributes we find useful for our data
-optAttrs = {'measurement_datetime','string'
-            'value_as_number','double'
-            'value_as_concept_id','int64'
-            'unit_concept_id','int64'
-            'visit_occurrence_id','int64'
-            'measurement_source_concept_id','int64'
-            'measurement_event_id','int64'
-            'meas_event_field_concept_id','int64'};
-% Combine required and optional attributes (the table will be initialized
-% when the number of rows we need is known)
-allAttrs = [reqAttrs; optAttrs];
-
 %--------------------------------------------------------------------------
 % Derive missing measures from the extracted ECG information
 % Derive ECG sampling rate of each recording
@@ -855,6 +765,8 @@ hrvTableFullStacked = renamevars(hrvTableFullStacked,'FK_ID','procedure_id_FK');
 % Append the HRV measures to the temporary Measurement/Observation data table
 tMeas = union(tMeas,hrvTableFullStacked,'stable');
 
+tMeas = sortrows(tMeas,'procedure_id_FK'); %Just to help review the table...
+
 %--------------------------------------------------------------------------
 % Define the specific table type (Measurement or Observation) based on the
 % domain of the suitable concepts identified for each measure. We need a
@@ -879,20 +791,176 @@ measVarTableRelation = ["Duration","measurement"
 tMeas.measTable = replace(tMeas.measType,measVarTableRelation(:,1),measVarTableRelation(:,2));
 
 %--------------------------------------------------------------------------
+% Define units of measurement for each measure. These will be mapped to a
+% standard concept in the measurement.measurement_concept_id field later,
+% if the relevant Source Term is defined in the vocabularies
+measUnitRelation = ["Duration","s"
+                     "FS","Hz"
+                     "AVNN","ms"
+                     "SDNN","ms"
+                     "RMSSD","ms"
+                     "HF_NORM_FFT","percent"
+                     "HF_POWER_FFT","ms2"
+                     "LF_NORM_FFT","percent"
+                     "LF_POWER_FFT","ms2"
+                     "LF_TO_HF_FFT","ratio"
+                     "VLF_NORM_FFT","percent"
+                     "VLF_POWER_FFT","ms2"
+                     "SD1","ms"
+                     "SD2","ms"
+                     "alpha1","a.u."
+                     "alpha2","a.u."
+                     "SampEn","a.u."];
+tMeas.measUnit = replace(tMeas.measType,measUnitRelation(:,1),measUnitRelation(:,2));
+
+
+%#######################################################################
+%--------------------------------------------------------------------------
 % When looking for suitable concepts for the measures we want to store,
 % some were found in the OMOP interconnected vocabularies, while
-% others not. Here we create the custom vocabulary and all the custom
-% concepts we need for storing this information
+% others not.
+% Create the custom vocabulary to store the additional concepts we need
+vocabulary = tableBuilderOMOP('vocabulary', 1);
+vocabulary.vocabulary_id = "ecg2omop-measures";
+vocabulary.vocabulary_name = "Additional ECG HRV measures";
+vocabulary.vocabulary_reference = "https://github.com/hbd-polimi-ws4/ecg2omop-public";
+vocabulary.vocabulary_concept_id = 0; %Suggested value on OHDSI documentation
+vocabulary.vocabulary_version = "2026-01-15"; %
 
+% Create the custom concepts in the concept table
+nCustomConc = 13;
+concept = tableBuilderOMOP('concept', nCustomConc);
+concept.concept_id = (2000000001:2000000001+nCustomConc-1)';
+concept.concept_name = ["Root Mean Squared of Successive Differences (RMSSD)"; ...
+        "HRV Power High Frequency (HF)"; "HRV Power High Frequency (HF) normalized"; ...
+        "HRV Power Low Frequency (LF)"; "HRV Power Low Frequency (LF) normalized"; ...
+        "Ratio of HRV Low Frequency and High Frequency powers"; ...
+        "HRV Power Very Low Frequency (VLF)"; "HRV Power Very Low Frequency (VLF) normalized"; ...
+        "Poincaré plot SD1"; "Poincaré plot SD2"; "Detrended Fluctuation Analysis (DFA) alpha1"; ...
+        "Detrended Fluctuation Analysis (DFA) alpha2"; "Sample entropy"];
+concept.concept_code = ["RMSSD"; "HF_POWER"; "HF_NORM"; "LF_POWER";...
+                        "LF_NORM"; "LF_TO_HF"; "VLF_POWER"; "VLF_NORM";...
+                        "SD1"; "SD2"; "alpha1"; "alpha2"; "SampEn"];
+%In this case, all custom concepts are measurements
+concept.domain_id = repmat("Measurement",nCustomConc,1);
+%We want all of them to be included in the same custom vocabulary
+concept.vocabulary_id = repmat(vocabulary.vocabulary_id,nCustomConc,1);
+%They are all Clinical Observation (same concept class of
+%"RR-interval.standard deviation")
+concept.concept_class_id = repmat("Clinical Observation",nCustomConc,1);
+%Suggested value for valid_start_date is today
+concept.valid_start_date = repmat(string(datetime('now'),'uuuu-MM-dd'),nCustomConc,1);
+%Default value for valid_end_date
+concept.valid_end_date = repmat("2099-12-31",nCustomConc,1);
+%In this case, all custom concepts are STANDARD, as we didn't find
+%close-enough standard concepts in OMOP vocabularies with which we could
+%represent our measures. Thus, as we need the custom concepts to go in the
+%measurement_concept_id, we must make them STANDARD.
+concept.standard_concept = repmat("S",nCustomConc,1);
 
-
+% Create relationships between: A) custom concepts and themselves, or B)
+% bewteen custom concepts and other concepts from OMOP vocabularies.
+%   A) When we define custom concepts as standard ("S"), we must relate
+%      each concept to itself with "Maps to" and "Mapped from"
+%      relationships
+%   B) When we define custom concepts as non-standard ("N" or <missing>),
+%      we must map each concept to the most close standard concept in OMOP
+%      vocabularies with the "Maps to" relationship. In addition, we must
+%      map the standard concept to the custom non-standard concept with
+%      the "Mapped from" relationship.
+tnonStd_to_Std = table([],... %Here go our custom non-standard concepts code
+                       [],... %Here go the associated standard concepts code from OMOP vocabularies
+                       'VariableNames',{'NonStd','Std'});
+concept_relationship = tableBuilderOMOP('concept_relationship',nCustomConc*2);
+for k = 1:nCustomConc
+    ci = (k-1)*2+1;
+    cf = k*2;
+    if concept.standard_concept(k) == "S"
+        % Case A), i.e. custom STANDARD concept
+        concept_relationship.concept_id_1(ci:cf) = repmat(concept.concept_id(k),2,1);
+        concept_relationship.concept_id_2(ci:cf) = repmat(concept.concept_id(k),2,1);
+        concept_relationship.relationship_id(ci:cf) = ["Maps to"; "Mapped from"];
+    else
+        % Case B), i.e. custom NON-STANDARD concept
+        NonStd = concept.concept_id(k);
+        Std = tnonStd_to_Std.Std(tnonStd_to_Std.NonStd==NonStd);
+        concept_relationship.concept_id_1(ci:cf) = [NonStd; Std];
+        concept_relationship.concept_id_2(ci:cf) = [Std; NonStd];
+        concept_relationship.relationship_id(ci:cf) = ["Maps to"; "Mapped from"];
+    end
+    concept_relationship.valid_start_date(ci:cf) = repmat(concept.valid_start_date(k),2,1);
+    concept_relationship.valid_end_date(ci:cf) = repmat(concept.valid_end_date(k),2,1);
+end
+%#######################################################################
 
 %--------------------------------------------------------------------------
 % Map the data from the combined temporary table into the standard
 % measurement and observation tables.
-nrec = height(tMeas);
-measurement = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
-                             'VariableNames',allAttrs(:,1));
+nrecTot = height(tMeas);
+pMeas = tMeas.measTable=="measurement";
+pObs  = tMeas.measTable=="observation";
+nrecMeas = sum(pMeas);
+nrecObs  = sum(pObs);
+measurement = tableBuilderOMOP('measurement',nrecMeas);
+observation = tableBuilderOMOP('observation',nrecObs);
+
+%-----------------------------------------------------------------------
+% measurement.measurement_id
+% measurement.person_id
+% measurement.visit_occurrence_id
+measurement.measurement_id = (1:nrecMeas)';
+measurement.person_id = tMeas.person_id_FK(pMeas);
+measurement.visit_occurrence_id = tMeas.visit_id_FK(pMeas);
+
+%-----------------------------------------------------------------------
+% measurement.meas_event_field_concept_id
+% measurement.measurement_event_id
+% Define the link between each measure and the procedure record (i.e., ECG
+% signal) from which the measure was calculated
+measConnTbl = repmat("procedure_occurrence",nrecMeas,1);
+measurement.meas_event_field_concept_id = ...
+       mapToConceptsFromVocab('measurement','meas_event_field_concept_id',measConnTbl);
+measurement.measurement_event_id = tMeas.procedure_id_FK(pMeas);
+
+%-----------------------------------------------------------------------
+% measurement.measurement_date
+% measurement.measurement_datetime
+vdtStart = arrayfun(@(prid) datetime( ...
+           procedure_occurrence.procedure_datetime(procedure_occurrence.procedure_occurrence_id==prid), ...
+           'InputFormat','uuuu-MM-dd HH:mm:ss' ),...
+           tMeas.procedure_id_FK(pMeas));
+measurement.measurement_date = string(vdtStart,'uuuu-MM-dd');
+measurement.measurement_datetime = string(vdtStart,'uuuu-MM-dd HH:mm:ss');
+
+%-----------------------------------------------------------------------
+% measurement.value_as_number
+% measurement.unit_concept_id
+% measurement.unit_source_value
+measurement.value_as_number = tMeas.NumValue(pMeas);
+measurement.unit_concept_id = ...
+       mapToConceptsFromVocab('measurement','unit_concept_id',tMeas.measUnit(pMeas),false);
+measurement.unit_source_value = tMeas.measUnit(pMeas);
+
+
+%-----------------------------------------------------------------------
+% measurement.measurement_type_concept_id
+% The list of accepted concepts for this field is the same as seen for
+% observation_period.period_type_concept_id.
+% Here we use the same concept selected for procedure.procedure_type_concept_id, 
+% for consistency.
+measType2 = repmat("EHRencounter",nrecMeas,1);
+measurement.measurement_type_concept_id = ...
+       mapToConceptsFromVocab('measurement','measurement_type_concept_id',measType2);
+
+%-----------------------------------------------------------------------
+% measurement.measurement_concept_id (standard concepts, required for EVERY record)
+% measurement.measurement_source_concept_id (non-standard concepts, if any)
+% measurement.measurement_source_value
+measurement.measurement_concept_id = ...
+       mapToConceptsFromVocab('measurement','measurement_concept_id',tMeas.measType(pMeas));
+measurement.measurement_source_concept_id = ...
+       mapToConceptsFromVocab('measurement','measurement_source_concept_id',tMeas.measType(pMeas),false);
+measurement.measurement_source_value = tMeas.measType(pMeas);
 
 
 

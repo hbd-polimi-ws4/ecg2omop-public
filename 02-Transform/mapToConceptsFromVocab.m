@@ -1,7 +1,15 @@
-function vOutConceptIDs = mapToConceptsFromVocab(TableName,FieldName,vSourceTerms,vocabFolderPath)
+function vOutConceptIDs = mapToConceptsFromVocab(TableName,FieldName,vSourceTerms,mustMatch,vocabFolderPath)
+
+% mustMatch = if it's set to true, missing values in vOutConceptIDs won't
+%             be accepted: in their presence, the function will throw an
+%             error. Set this to true if you are mapping concepts to
+%             required fields; set it to false otherwise.
 
 if ~exist('vocabFolderPath','var') || isempty(vocabFolderPath)
     vocabFolderPath = fullfile(fileparts(which('MAINtransform')),'VocabulariesConceptMap');
+end
+if ~exist('mustMatch','var') || isempty(mustMatch)
+    mustMatch = true;
 end
 
 persistent tvocab;
@@ -65,28 +73,34 @@ end
 % Convert SourceTerms to strings, if needed
 vSourceTerms = string(vSourceTerms);
 
-% Replace possible <missing> elements in the array of SourceTerms with a
-% literal "missing" string to allow for finding a match with the homonymous
-% SourceTerm in the vocabularies
-vSourceTerms = fillmissing(vSourceTerms,'constant',"missing");
-
 % Associate the correct output OMOPconceptID to each SourceCode
 tvocabSubset = tvocab(tvocab.TableName==TableName & tvocab.FieldName==FieldName, :);
 vOutConceptIDs = arrayfun(@(s) tvocabSubset.OMOPconceptID( strcmpi(tvocabSubset.SourceTerm,s)),...
                           vSourceTerms,'UniformOutput',false);
 
-% Check if any of the cell of the output array is empty, as this means that
+% Check if any of the cell of the output array is empty, meaning either that
 % no associated OMOPconceptID has been found in the vocabulary for the
-% searched term in vSourceTerms. If this is the case, throw an error,
-% showing all SourceTerms missing a match in the vocabularies.
+% searched term in vSourceTerms or that some elements of vSourceTerms were
+% missing form the beginning.
 pUnmatched = cellfun(@isempty,vOutConceptIDs);
 if any(pUnmatched)
-    unmatchedSourceTerms = unique(vSourceTerms(pUnmatched));
-    fprintf(['\nERROR: Vocabularies lack definitions of OMOPconceptIDs for the ' ...
-             'following SourceTerms of the %s table:\n'], TableName);
-    disp(unmatchedSourceTerms);
-    error('mapToConceptsFromVocab:vocabularyChk',['Missing OMOPconceptsIDs in ' ...
-          'the vocabulary for the above list of SourceTerms of the %s table'],TableName);
+    if mustMatch
+        % If mustMatch is set to true, throw an error, showing all
+        % SourceTerms missing at least one match in the vocabularies
+        unmatchedSourceTerms = unique(vSourceTerms(pUnmatched));
+        fprintf(['\nERROR: Vocabularies lack definitions of OMOPconceptIDs for the ' ...
+                 'following SourceTerms of the %s table:\n'], TableName);
+        disp(unmatchedSourceTerms);
+        error('mapToConceptsFromVocab:vocabularyChk',['Missing OMOPconceptsIDs in ' ...
+              'the vocabulary for the above list of SourceTerms of the %s table'],TableName);
+    else
+        % If mustMatch is set to false, replace empty cells (i.e.,
+        % unmatched Source Terms) with NaN and convert the other elements to
+        % double before proceeding. The cell2mat below can give issues if
+        % trying to combine int64 with NaN values
+        vOutConceptIDs(pUnmatched) = {NaN};
+        vOutConceptIDs = cellfun(@double, vOutConceptIDs,'UniformOutput',false);
+    end
 end
 
 % If every SourceTerm was mapped to a unique OMOPconceptID, instead, return
