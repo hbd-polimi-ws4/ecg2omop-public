@@ -145,7 +145,10 @@ reqAttrs = {'person_id','int64'
             'race_concept_id','int64'
             'ethnicity_concept_id','int64'};
 % Define optional attributes we find useful for our data
-optAttrs = {'person_source_value','string'};
+optAttrs = {'person_source_value','string'
+            'gender_source_value','string'
+            'race_source_value','string'
+            'ethnicity_source_value','string'};
 % Combine required and optional attributes (the table will be initialized when the number of rows we need is known)
 allAttrs = [reqAttrs; optAttrs];
 
@@ -201,27 +204,45 @@ person.year_of_birth = fillmissing(person.year_of_birth,'constant',-1);
 
 %--------------------------------------------------------------------------
 % person.gender_concept_id
-person.gender_concept_id = mapToConceptsFromVocab('person','gender_concept_id',comTableFullUnique.Sex);
+% person.gender_source_value
+% In Physionet datasets, there is the possibility that the person's gender
+% is unknown, which is extremely unlikely in real hospital datasets. To
+% these observations, we assign a non-standard concept for the Gender
+% domain that is defined as "Gender unknown" (see vocabularies loaded by
+% mapToConceptsFromVocab). To keep track of this peculiarity and
+% double-check with the assigned OMOPconceptIDs, we also save the source
+% value of the gender property.
+person.gender_source_value = fillmissing(comTableFullUnique.Sex,'constant',"unknown");
+person.gender_concept_id = mapToConceptsFromVocab('person','gender_concept_id',person.gender_source_value);
 
 %--------------------------------------------------------------------------
-% person.ethnicity_concept_id (though this is a mandatory field in the
-% Person table and there is no "escape" value, which is honestly weird, we
+% person.ethnicity_concept_id
+% person.ethnicity_source_value
+% Since this is a mandatory field in the Person table and there is no
+% "escape" value to use in case it is missing, which is honestly weird, we
 % decided to use the OMOPconceptID for "More than one ethnicity" in our
-% case, since we don't have this information in our datasets).
+% case, as we don't have this information in our datasets. To preserve the
+% original meaning we are giving to this field clearly, we also store
+% "unknown" as the source value for this property.
 % Source:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#person
-comTableFullUnique.Ethnicity = repmat("missing",nrec,1);
-person.ethnicity_concept_id = mapToConceptsFromVocab('person','ethnicity_concept_id',comTableFullUnique.Ethnicity);
+person.ethnicity_source_value = repmat("unknown",nrec,1);
+person.ethnicity_concept_id = mapToConceptsFromVocab('person','ethnicity_concept_id',...
+                                                     person.ethnicity_source_value);
 
 %--------------------------------------------------------------------------
-% person.race_concept_id (this is a mandatory field in the Person table,
-% but we don't have this information in our datasets; we use the value
-% recommended by the standard's specifications in this case, i.e. 0, as
-% mapped in our vocabulary for this field's "missing" information).
+% person.race_concept_id
+% person.race_source_value
+% This is a mandatory field in the Person table, but we don't have this
+% information in our datasets; we use the value recommended by the
+% standard's specifications in this case, i.e. 0, as mapped in our
+% vocabulary for this field's missing information. To preserve this meaning
+% clearly, we also store "unknown" as the source value for this field.
 % Source:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#person
-comTableFullUnique.Race = repmat("missing",nrec,1);
-person.race_concept_id = mapToConceptsFromVocab('person','race_concept_id',comTableFullUnique.Race);
+person.race_source_value = repmat("unknown",nrec,1);
+person.race_concept_id = mapToConceptsFromVocab('person','race_concept_id',...
+                                                person.race_source_value);
 
 % Furthermore, we can map each patient to their exams in the comTableFull,
 % which we will need to populate the procedure_occurrence table and for
@@ -303,7 +324,7 @@ observation_period.observation_period_end_date = string(vdtMaxEnd,'uuuu-MM-dd');
 % "EHR encounter record" sounds more appropriate in our case, since it is
 % less specific, hence more flexible when we don't know the exact reason
 % that led to the ECG exam, as for most Physionet datasets.
-obsPeriodType = repmat("missing",nrec,1);
+obsPeriodType = repmat("EHRencounter",nrec,1);
 observation_period.period_type_concept_id = ...
        mapToConceptsFromVocab('observation_period','period_type_concept_id',obsPeriodType);
 
@@ -378,14 +399,14 @@ end
 % observation_period.period_type_concept_id.
 % Here we use the same concept selected for observation_period.period_type_concept_id, 
 % for consistency.
-visitType = repmat("missing",nrec,1);
+visitType = repmat("EHRencounter",nrec,1);
 visit_occurrence.visit_type_concept_id = ...
       mapToConceptsFromVocab('visit_occurrence','visit_type_concept_id',visitType);
 
 %--------------------------------------------------------------------------
 % visit_occurrence.visit_concept_id
 % visit_occurrence.visit_end_date
-visitType2 = repmat("missing",nrec,1);
+visitType2 = repmat("LabVisit",nrec,1);
 visit_occurrence.visit_concept_id = ...
       mapToConceptsFromVocab('visit_occurrence','visit_concept_id',visitType2);
 % Given the visit type we selected, which must end within one day, this is
@@ -427,7 +448,10 @@ allAttrs = [reqAttrs; optAttrs];
 nrec = height(comTableFull);
 procedure_occurrence = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
                              'VariableNames',allAttrs(:,1));
-procedure_occurrence.procedure_occurrence_id = (1:nrec)';
+procedure_occurrence.procedure_occurrence_id = comTableFull.ID;
+% To ensure this direct link between records of comTableFull and procedure
+% tables is written in stone:
+comTableFull.procedure_id_FK = comTableFull.ID;
 
 %--------------------------------------------------------------------------
 % procedure_occurrence.procedure_date
@@ -465,7 +489,7 @@ comTableFull.visit_id_FK = procedure_occurrence.visit_occurrence_id;
 % observation_period.period_type_concept_id.
 % Here we use the same concept selected for observation_period.period_type_concept_id, 
 % for consistency.
-procedureType = repmat("missing",nrec,1);
+procedureType = repmat("EHRencounter",nrec,1);
 procedure_occurrence.procedure_type_concept_id = ...
       mapToConceptsFromVocab('procedure_occurrence','procedure_type_concept_id',procedureType);
 
@@ -501,12 +525,6 @@ sOMOPtables.procedure_occurrence = procedure_occurrence;
 
 
 %% Assemble OMOP CDM condition_occurrence table
-% Questa va usata sia per le diagnosi mediche associate ai pazienti e
-% contenute nella tabella comTableFull, che per sintetizzare le annotazioni
-% battito-battito "anomale" automatiche estratte da ECG SE QUELLE
-% INDIVIDUATE NEL NOSTRO CASO (pag. 36 tesi Emanuele) FANNO PARTE DEL DOMINIO "CONDITIONS"; ALTRIMENTI, DOVREMO
-% INSERIRLE IN OBSERVATIONS ("tutto cio' che non rientra nel dominio di una
-% tabella specifica deve essere inserito come observations).
 
 % CONSTRAINTS AND ASSUMPTIONS:
 % Each ECG recording can produce zero, one, or multiple records in the
@@ -644,7 +662,7 @@ conditions = condTables.(condNames{1});
 for k = 2:length(condNames)
     conditions = union(conditions,condTables.(condNames{k}),'stable');
 end
-conditions = sortrows(conditions,'visit_id_FK');
+conditions = sortrows(conditions,'visit_id_FK'); %Just to help review the table...
 
 %--------------------------------------------------------------------------
 % Map the data from the combined temporary table into the standard
@@ -666,8 +684,94 @@ condition_occurrence.condition_concept_id = ...
 sOMOPtables.condition_occurrence = condition_occurrence;
 
 
-%% Assemble OMOP CDM measurement table and define related custom concepts
-% Questa va usata per metriche HRV
+%% Assemble OMOP CDM Measurement and Observation table and define related custom concepts
+
+% The Measurement and Observation tables are both used to store
+% quantitative or categorical results and facts from medical examinations.
+% The main difference between them is that values associated with concepts
+% belonging to the Measurement domain MUST go in the Measurement table,
+% while values in the Observation table can belong to any domain, except
+% for Condition, Procedure, Drug, Measurement, or Device. In both cases,
+% the concept used in the <tablename>_concept_id field MUST be standard, as
+% applies to all the other tables. In case of categorical response values,
+% accepted concepts of the responses for the Measurement table are those
+% included in the Meas Value domain. Apart from these differences, the
+% other attributes available for both tables are very similar in definition
+% and content. These tables have one record for each measure acquired
+% during an ECG
+% recording or related property.
+% We decided to store the following quantitative info about each ECG:
+%       - HRV metrics: only the ones that could be computed robustly for
+%         each ECG record are stored; all in the Measurement table.
+%       - Total duration of the recorded ECG signals; available for all
+%         ECGs, will go in the Measurement table.
+%       - Sampling frequency; available for all ECGs, stored in the Observation
+%         table because no related concept was found in the Measurement domain.
+%
+% An example of Measurement fully characterized by a standard concept is
+% the ECG duration:
+%    - measurement_concept_id: "Recording duration by EKG" (3004182)
+%    - unit_concept_id: second (8555)
+%
+% If we can't identify a standard concept from the Measurement domain that
+% is capable of accurately describing the measure, a practice recommended
+% by the specifications is to identify a close-enough standard concept (if
+% we can find one) to which we will associate a well-describing
+% non-standard concept. The non-standard concept can be either already
+% available in one of the OMOP vocabularies, in which case we can just
+% select it as a measurement_source_concept_id to make the description
+% of the measure made by the more general, but still well-descriptive,
+% selected standard concept more accurate. The standard concept, instead,
+% should be mapped to the typical measurement_concept_id field.
+% This goes by the definition of the measurement_source_concept_id field
+% ("This field [...] should only be used when Standard Concepts do not
+% adequately represent the source detail for the Measurement necessary for
+% a given analytic use case."):
+%       https://ohdsi.github.io/CommonDataModel/cdm54.html#measurement
+% By doing so, we will obtain a perfectly compliant OMOP structure, as both
+% the terms (i.e., the standard and the non-standard one) will be seen by
+% OMOP tools and become querable, also in "OMOP-network studies". An example
+% of this solution in our application: "ECG sampling rate" defined through
+% the combination of:
+%    - a standard concept used in the concept_id field: "Sampling - action"
+%      (4117495) (already self-explanatory, even if not perfect)
+%    - a perfectly matching non-standard concept, used in the
+%      source_concept_id field: "Digital Sampling Rate" (37533243)
+%    - unit_concept_id (to make its semantic even clearer): Hertz (9521)
+% 
+% If we can identify a close-enough standard concept, as previously, but
+% not a fully-descriptive non-standard one, we can create the latter ourselves as a custom
+% concept and link it to the identified standard one through a "Maps to"
+% relationship (and corresponding "Mapped from"), allowing the ETL to
+% resolve the related standard concept automatically. This step is important
+% because allows custom-made concepts to be easily re-mapped to more
+% appropriate new ones, should they ever become available. This is the
+% preferred modality with which custom concepts should be added to the
+% vocabulary, as clearly expressed in the OMOP CDM documentation:
+%      https://ohdsi.github.io/CommonDataModel/customConcepts.html
+% An example based on our application (can't find one at the moment...):
+%    - ...
+% 
+% If a close-enough standard concept is not found, the only remaining
+% alternative, is to create a custom standard concept, following a
+% procedure similar to the previous one. However, without the possibility to map
+% the custom concept to a standard one, we'll be able to use that feature
+% only in "local" OMOP installations (though it will be perfectly usable
+% through OMOP-compliant tools), where the custom vocabulary has been
+% imported. Instead, we'll lose the possibility to use that feature in
+% "OMOP community studies". To solve this issue, we can request our custom
+% concept to be included into OMOP standard vocabularies, following the
+% official procedure:
+%    https://ohdsi.github.io/CommonDataModel/vocabRequest.html
+%
+% #########################################################################
+% TO BE DELETED (OLD METHOD, NOT WELL-SUPPORTED BY OMOP DOCUMENTATION):
+% An acceptable practice is to use the field value_as_concept_id to further
+% refine the semantic description of the quantity that is measured. This
+% opens to the possibility of using the measurement_concept_id field to
+% indicate the "family" of measures that single measurement belongs to and,
+% as further specification, the concept stated in the
+% measurement_source_concept_id field.
 % Define custom OMOP vocabulary and concepts needed for the HRV metrics in
 % the measurement table. Official source:
 %       https://ohdsi.github.io/CommonDataModel/customConcepts.html
@@ -686,6 +790,110 @@ sOMOPtables.condition_occurrence = condition_occurrence;
 % che non si possa memorizzare anche la durata del segnale come metadato
 % aggiuntivo; si puo' anche fare riferimento alla differenza tra datetime
 % di fine e inizio procedura per quello).
+% #########################################################################
+
+% Define the required attributes based on OMOP CDM v5.4 specifications
+reqAttrs = {'measurement_id','int64'
+            'person_id','int64'
+            'measurement_concept_id','int64'
+            'measurement_date','string'
+            'measurement_type_concept_id','int64'};
+% Define optional attributes we find useful for our data
+optAttrs = {'measurement_datetime','string'
+            'value_as_number','double'
+            'value_as_concept_id','int64'
+            'unit_concept_id','int64'
+            'visit_occurrence_id','int64'
+            'measurement_source_concept_id','int64'
+            'measurement_event_id','int64'
+            'meas_event_field_concept_id','int64'};
+% Combine required and optional attributes (the table will be initialized
+% when the number of rows we need is known)
+allAttrs = [reqAttrs; optAttrs];
+
+%--------------------------------------------------------------------------
+% Derive missing measures from the extracted ECG information
+% Derive ECG sampling rate of each recording
+vts = datetime(smpTableFull.Timestamp,'InputFormat','HH:mm:ss.SSS');
+comTableFull.FS = splitapply(@(vt) 1/(seconds(vt(2)-vt(1))), vts,smpTableFull.FK_ID);
+% Derive ECG duration of each recording
+vdtStart = datetime(comTableFull.RecordDate,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+vdtEnd   = datetime(comTableFull.RecordEnd,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
+comTableFull.Duration = seconds(vdtEnd-vdtStart);
+% Assemble a temporary table with all the information required for populating
+% the final Measurement or Observation tables
+indexVarName = 'measType'; % We keep this name the same across all temporary measures tables
+numVarName = 'NumValue';   % ""  ""
+tMeas = stack(comTableFull,{'Duration','FS'},...
+              'ConstantVariables',{'procedure_id_FK','visit_id_FK','person_id_FK'}, ...
+              'NewDataVariableName',numVarName,'IndexVariableName',indexVarName);
+% Convert the "Index" variable provided by the "stack" function to string
+tMeas.measType = string(tMeas.measType);
+
+%--------------------------------------------------------------------------
+% Transform the HRV metrics table to get one row for each index and prepare
+% them for insertion into the measurement table
+hrvTableFull_noID = hrvTableFull(:,2:end);
+hrvTableFullStacked = stack(hrvTableFull_noID,1:width(hrvTableFull_noID)-1,...
+                            'ConstantVariables','FK_ID',...
+                            'NewDataVariableName',numVarName,'IndexVariableName',indexVarName);
+% Convert the "Index" variable provided by the "stack" function to string
+hrvTableFullStacked.measType = string(hrvTableFullStacked.measType);
+% Remove missing HRV metrics (i.e., those that were not calculated during
+% the Extraction phase because of too short ECG signals)
+hrvTableFullStacked(isnan(hrvTableFullStacked.NumValue),:) = [];
+% Define the foreign keys to reconstruct the associations we need in the
+% Measurement table.
+% The below definition of procedure_id_FK is because each record of
+% comTableFull is one exam, i.e. one record of the procedure table, and
+% FK_ID of hrvTableFull links to the primary key of comTableFull.
+hrvTableFullStacked.person_id_FK = arrayfun(@(eid) comTableFull.person_id_FK(comTableFull.ID==eid),...
+                                            hrvTableFullStacked.FK_ID);
+hrvTableFullStacked.visit_id_FK = arrayfun(@(eid) comTableFull.person_id_FK(comTableFull.ID==eid),...
+                                           hrvTableFullStacked.FK_ID);
+hrvTableFullStacked = renamevars(hrvTableFullStacked,'FK_ID','procedure_id_FK');
+% Append the HRV measures to the temporary Measurement/Observation data table
+tMeas = union(tMeas,hrvTableFullStacked,'stable');
+
+%--------------------------------------------------------------------------
+% Define the specific table type (Measurement or Observation) based on the
+% domain of the suitable concepts identified for each measure. We need a
+% cell for each value of unique(tMeas.measType).
+measVarTableRelation = ["Duration","measurement"
+                        "FS","observation"
+                        "AVNN","measurement"
+                        "SDNN","measurement"
+                        "RMSSD","measurement"
+                        "HF_NORM_FFT","measurement"
+                        "HF_POWER_FFT","measurement"
+                        "LF_NORM_FFT","measurement"
+                        "LF_POWER_FFT","measurement"
+                        "LF_TO_HF_FFT","measurement"
+                        "VLF_NORM_FFT","measurement"
+                        "VLF_POWER_FFT","measurement"
+                        "SD1","measurement"
+                        "SD2","measurement"
+                        "alpha1","measurement"
+                        "alpha2","measurement"
+                        "SampEn","measurement"];
+tMeas.measTable = replace(tMeas.measType,measVarTableRelation(:,1),measVarTableRelation(:,2));
+
+%--------------------------------------------------------------------------
+% When looking for suitable concepts for the measures we want to store,
+% some were found in the OMOP interconnected vocabularies, while
+% others not. Here we create the custom vocabulary and all the custom
+% concepts we need for storing this information
+
+
+
+
+%--------------------------------------------------------------------------
+% Map the data from the combined temporary table into the standard
+% measurement and observation tables.
+nrec = height(tMeas);
+measurement = table('Size',[nrec length(allAttrs)],'VariableTypes',allAttrs(:,2),...
+                             'VariableNames',allAttrs(:,1));
+
 
 
 %% Assemble OMOP CDM observation table
