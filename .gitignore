@@ -215,11 +215,12 @@ __marimo__/
 # Data folders
 Datasets/
 Datasets2/
+Datasets3/
 Outputs/
 Outputs2/
+Outputs3/
 02-Transform/ImportFolder/
 02-Transform/Mappings/
 
 # Currently under-development
-03-Load/
 *_forTesting.xlsx

@@ -13,20 +13,21 @@ clc;
 % after the "Download Physionet ECG datasets" one.
 
 % Define datasets folder (if it doesn't exist, it'll be created)
-dataPath = 'Datasets2/';
+dataPath = 'Datasets3/';
 
 % Define dataset names and related .zip download URLs (they will be
 % downloaded only if a folder with the dataset name doesn't exist in
 % dataPath).
 % Those written here are the datasets that were used for pipeline
 % development and testing.
-datasets = {'lobachevsky-university-electrocardiography-database-1.0.1','https://www.physionet.org/content/ludb/get-zip/1.0.1/'
-            'st-petersburg-incart-12-lead-arrhythmia-database-1.0.0','https://physionet.org/content/incartdb/get-zip/1.0.0/'
-            't-wave-alternans-challenge-database-1.0.0','https://physionet.org/content/twadb/get-zip/1.0.0/'};
+datasets = {'lobachevsky-university-ecg-db-1.0.1','https://www.physionet.org/content/ludb/get-zip/1.0.1/'
+            'st-petersburg-incart-arrhythmia-db-1.0.0','https://physionet.org/content/incartdb/get-zip/1.0.0/'
+            't-wave-alternans-challenge-db-1.0.0','https://physionet.org/content/twadb/get-zip/1.0.0/'};
 
 % Define the output folder for the CSV tables produced by the Extraction
-% phase (if it doesn't exist, it'll be created)
-outputCSVpath = 'Outputs2/';
+% phase (if it doesn't exist, it'll be created). This folder will also be
+% the entry point of the Transform phase.
+outputExtractCSVpath = 'Outputs3/';
 
 %% Adding all paths needed to run the ETL pipeline
 setup_ecg2omop();
@@ -110,16 +111,22 @@ processedRecAll = tableBuilder('notes',0);
 for ds = 1:size(datasets,1)
     dsName = datasets{ds,1};
     dsPath = fullfile(dataPath,dsName);
-    [~,processedRec] = MAINextraction('RECORDSpath',dsPath,'outputPath',outputCSVpath,...
+    [~,processedRec] = MAINextraction('RECORDSpath',dsPath,'outputPath',outputExtractCSVpath,...
                                       'toEndSmp',10);
     processedRecAll = [processedRecAll; processedRec]; %#ok<AGROW>
 end
 
+
 %% Execute the Transform phase on all datasets
+outputTransformCSVpath = fullfile(outputExtractCSVpath,'Transformed');
+sOMOPtables = MAINtransform('inputCSVPath',outputExtractCSVpath,...
+                            'outputPath',outputTransformCSVpath);
 
 
 %% Execute the Load phase on all datasets
-
+outputTransformCSVpath = fullfile(outputExtractCSVpath,'Transformed');
+[sOMOP_recLoaded,sOMOP_recNotLoaded] = MAINload('inputCSVPath',outputTransformCSVpath,...
+                                                'dryrun',false);
 
 
 %%

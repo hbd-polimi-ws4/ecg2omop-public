@@ -60,7 +60,8 @@ switch type
         optAttrs = {'procedure_datetime','string'
                     'procedure_end_date','string'
                     'procedure_end_datetime','string'
-                    'visit_occurrence_id','int64'};
+                    'visit_occurrence_id','int64'
+                    'procedure_source_value','string'};
 
     case 'condition_occurrence'
         %% OMOP CDM condition_occurrence table

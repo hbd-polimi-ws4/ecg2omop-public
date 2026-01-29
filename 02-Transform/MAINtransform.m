@@ -1,6 +1,6 @@
-function [sOMOPtables, comTableFull, hrvTableFull, dgnTableFull] = MAINtransform(varargin)
+function sOMOPtables = MAINtransform(varargin)
 % 
-% [person, conditions_era, measurement, observation] = MAINtransform(varargin)
+% sOMOPtables = MAINtransform(varargin)
 %  
 %   Main function to transform the tables created by the MAINextraction
 %   procedure and map the relevant information into OMOP-compliant tables.
@@ -36,7 +36,6 @@ function [sOMOPtables, comTableFull, hrvTableFull, dgnTableFull] = MAINtransform
 %
 % Contributors:
 %   Pierluigi Reali, Ph.D., 2024-2026
-%   Alessandro Carotenuto, 2024
 %
 % Affiliation:
 %   Department of Electronics Information and Bioengineering, Politecnico di Milano
@@ -47,6 +46,7 @@ function [sOMOPtables, comTableFull, hrvTableFull, dgnTableFull] = MAINtransform
 ip = inputParser;
 ip.addParameter( 'inputCSVPath', pwd, @(x) (isstring(x) && isscalar(x)) || (ischar(x) && isvector(x)) );
 ip.addParameter( 'writeOMOPTableCSVs', true, @(x) islogical(x) && isscalar(x) );
+ip.addParameter( 'outputPath', '', @(x) (isstring(x) && isscalar(x)) || (ischar(x) && isvector(x)) )
 ip.addParameter( 'comTableFull', tableBuilder('notes',0), @(x) islogical(x) && isscalar(x) );
 ip.addParameter( 'smpTableFull', tableBuilder('meas',0), @(x) islogical(x) && isscalar(x) );
 ip.addParameter( 'dgnTableFull', tableBuilder('autoDiag',0), @(x) islogical(x) && isscalar(x) );
@@ -58,6 +58,7 @@ ip.addParameter( 'hrvTableFull', tableBuilder('hrvMetrics',0), @(x) islogical(x)
 ip.parse(varargin{:});
 inputCSVPath = ip.Results.inputCSVPath;
 writeOMOPTableCSVs = ip.Results.writeOMOPTableCSVs;
+outputPath = ip.Results.outputPath;
 comTableFull = ip.Results.comTableFull;
 smpTableFull = ip.Results.smpTableFull;
 dgnTableFull = ip.Results.dgnTableFull;
@@ -172,14 +173,14 @@ person.person_source_value = comTableFullUnique.Patient;
 % tables generated during the Transform phase; definitive primary keys will
 % be generated during the Load phase, based on the records already
 % available in the database)
-person.person_id = (1:nrec)';
+person.person_id = int64(1:nrec)';
 
 %--------------------------------------------------------------------------
 % person.year_of_birth
 % As we have patient age in our datasets the year_of_birth must be
 % inferred from this information and the date of the recording
 vdtRecDates = datetime(comTableFullUnique.RecordDate,'InputFormat','uuuu-MM-dd HH:mm:ss.SSS');
-person.year_of_birth = year(vdtRecDates) - comTableFullUnique.Age;
+person.year_of_birth = int64( year(vdtRecDates) - comTableFullUnique.Age );
 % For those subjects whose age was not provided in the dataset, we have to
 % replace NaNs with a missing value marker (-1), as the year_of_birth is
 % mandatory information in the person table
@@ -230,15 +231,13 @@ person.race_concept_id = mapToConceptsFromVocab('person','race_concept_id',...
 % Furthermore, we can map each patient to their exams in the comTableFull,
 % which we will need to populate the procedure_occurrence table and for
 % other operations
-comTableFull.person_id_FK = person2exam;
+comTableFull.person_id_FK = int64(person2exam);
 
 % Add the table to the output struct
 sOMOPtables.person = person;
 
 %%%%% PERSON TABLE COMPLETED AND CHECKED! I SHOULD MOVE THIS TO A SEPARATE FUNCTION, ONE
 %%%%% FOR EACH OMOP TABLE TO MAKE THINGS LESS MESSY.
-%%%%% BUT LET'S FOCUS ON CHECKING THE OTHER TABLES BEFORE IMPROVING THE
-%%%%% SCRIPT'S STRUCTURE!
 
 
 %% Assemble OMOP CDM observation_period table
@@ -263,7 +262,7 @@ observation_period.person_id = person.person_id;
 
 %--------------------------------------------------------------------------
 % observation_period.observation_period_id
-observation_period.observation_period_id = (1:height(observation_period))';
+observation_period.observation_period_id = int64(1:height(observation_period))';
 
 %--------------------------------------------------------------------------
 % observation_period.observation_period_start_date
@@ -337,7 +336,7 @@ vVisitDates = string( cell2mat(cVisitDatesPerPerson) );
 nrec = length(vVisitDates);
 visit_occurrence = tableBuilderOMOP('visit_occurrence',nrec);
 visit_occurrence.visit_start_date = vVisitDates;
-visit_occurrence.visit_occurrence_id = (1:nrec)';
+visit_occurrence.visit_occurrence_id = int64(1:nrec)';
 
 %--------------------------------------------------------------------------
 % visit_occurrence.person_id
@@ -382,6 +381,26 @@ sOMOPtables.visit_occurrence = visit_occurrence;
 % table.
 % Each procedure record must be linked to one visit, but multiple
 % procedures can be related to the same visit.
+% For the moment, we use the procedure_source_value field to capture the
+% path of the ECG record related to a specific exam. We are aware that the limited length of
+% the char array expected by this field (VARCHAR(50)) may prevent from
+% saving the entire file path, if this is too long, especially if we
+% plan to use absolute paths. However, this massively depends on the
+% specific storage type we are going to use: for object-based
+% storage (the storage type we are going to use in the HBD's data lake), 50
+% chars would be more than enough to store billions of S3 objects
+% (https://aws.amazon.com/what-is/object-storage/), as they are often
+% encoded through Globally Unique Identifiers, which typically are 128-bit
+% integers represented as 32 hexadecimal digits (i.e., a sequence of char,
+% like f81d4fae-7dec-11d0-a765-00a0c91e6bf6) to identify data objects
+% instead of traditional file paths
+% (https://www.geeksforgeeks.org/cloud-computing/object-storage-vs-block-storage-in-cloud/).
+% Nevertheless, if longer char sequences are needed for any reasons, an
+% OMOP table of type "note" can be added in which text of arbitrary length
+% can be stored. Records of this table can be directly linked to
+% procedure_occurrence records through the note_event_field_concept_id and
+% note_event_id fields, we also adopted to relate measurement and
+% observation records to procedure_occurrence entries.
 % Source:
 %    https://ohdsi.github.io/CommonDataModel/cdm54.html#procedure_occurrence
 
@@ -391,10 +410,10 @@ sOMOPtables.visit_occurrence = visit_occurrence;
 % available ECG recordings
 nrec = height(comTableFull);
 procedure_occurrence = tableBuilderOMOP('procedure_occurrence',nrec);
-procedure_occurrence.procedure_occurrence_id = comTableFull.ID;
+procedure_occurrence.procedure_occurrence_id = int64(comTableFull.ID);
 % To ensure this direct link between records of comTableFull and procedure
 % tables is written in stone:
-comTableFull.procedure_id_FK = comTableFull.ID;
+comTableFull.procedure_id_FK = int64(comTableFull.ID);
 
 %--------------------------------------------------------------------------
 % procedure_occurrence.procedure_date
@@ -413,6 +432,11 @@ procedure_occurrence.procedure_end_datetime = string(vdtEnd,'uuuu-MM-dd HH:mm:ss
 % procedure_occurrence.person_id
 % Link each ECG recording procedure to the patient it belongs to
 procedure_occurrence.person_id = comTableFull.person_id_FK;
+
+%--------------------------------------------------------------------------
+% procedure_occurrence.procedure_source_value
+procedure_occurrence.procedure_source_value = ...
+       fullfile(comTableFull.DatasetName,comTableFull.RecordName);
 
 %--------------------------------------------------------------------------
 % procedure_occurrence.visit_occurrence_id
@@ -462,6 +486,7 @@ procedureType2(vAll12leads & vShortRecs) = "12LeadECG";
 procedureType2(~vShortRecs) = "HolterECG";
 procedure_occurrence.procedure_concept_id = ...
       mapToConceptsFromVocab('procedure_occurrence','procedure_concept_id',procedureType2);
+
 
 % Add the table to the output struct
 sOMOPtables.procedure_occurrence = procedure_occurrence;
@@ -603,7 +628,7 @@ condition_occurrence.person_id = conditions.person_id_FK;
 condition_occurrence.visit_occurrence_id = conditions.visit_id_FK;
 condition_occurrence.condition_start_date = conditions.RecordDate;
 condition_occurrence.condition_source_value = conditions.Diagnosis;
-condition_occurrence.condition_occurrence_id = (1:nrec)';
+condition_occurrence.condition_occurrence_id = int64(1:nrec)';
 condition_occurrence.condition_type_concept_id = ...
       mapToConceptsFromVocab('condition_occurrence','condition_type_concept_id',conditions.Type);
 condition_occurrence.condition_concept_id = ...
@@ -618,7 +643,7 @@ sOMOPtables.condition_occurrence = condition_occurrence;
 % The Measurement and Observation tables are both used to store
 % quantitative or categorical results and facts from medical examinations.
 % The main difference between them is that values associated with concepts
-% belonging to the Measurement domain MUST go in the Measurement table,
+% belonging to the Measurement domain MUST go into the Measurement table,
 % while values in the Observation table can belong to any domain, except
 % for Condition, Procedure, Drug, Measurement, or Device. In both cases,
 % the concept used in the <tablename>_concept_id field MUST be standard, as
@@ -627,8 +652,7 @@ sOMOPtables.condition_occurrence = condition_occurrence;
 % included in the Meas Value domain. Apart from these differences, the
 % other attributes available for both tables are very similar in definition
 % and content. These tables have one record for each measure acquired
-% during an ECG
-% recording or related property.
+% during an ECG recording or related property.
 % We decided to store the following quantitative info about each ECG:
 %       - HRV metrics: only the ones that could be computed robustly for
 %         each ECG record are stored; all in the Measurement table.
@@ -824,17 +848,17 @@ vocabulary = tableBuilderOMOP('vocabulary', 1);
 vocabulary.vocabulary_id = "ecg2omop-measures";
 vocabulary.vocabulary_name = "Additional ECG HRV measures";
 vocabulary.vocabulary_reference = "https://github.com/hbd-polimi-ws4/ecg2omop-public";
-vocabulary.vocabulary_concept_id = 0; %Suggested value on OHDSI documentation
+vocabulary.vocabulary_concept_id = int64(0); %Suggested value on OHDSI documentation
 vocabulary.vocabulary_version = "2026-01-15"; %
 
 % Create the custom concepts in the concept table
 nCustomConc = 13;
 concept = tableBuilderOMOP('concept', nCustomConc);
-concept.concept_id = (2000000001:2000000001+nCustomConc-1)';
-concept.concept_name = ["Root Mean Squared of Successive Differences (RMSSD)"; ...
+concept.concept_id = int64(2000000001:2000000001+nCustomConc-1)';
+concept.concept_name = ["Root Mean Squared Successive Differences (RMSSD)"; ...
         "HRV Power High Frequency (HF)"; "HRV Power High Frequency (HF) normalized"; ...
         "HRV Power Low Frequency (LF)"; "HRV Power Low Frequency (LF) normalized"; ...
-        "Ratio of HRV Low Frequency and High Frequency powers"; ...
+        "Ratio of HRV Low and High Frequency powers"; ...
         "HRV Power Very Low Frequency (VLF)"; "HRV Power Very Low Frequency (VLF) normalized"; ...
         "Poincaré plot SD1"; "Poincaré plot SD2"; "Detrended Fluctuation Analysis (DFA) alpha1"; ...
         "Detrended Fluctuation Analysis (DFA) alpha2"; "Sample entropy"];
@@ -891,12 +915,17 @@ for k = 1:nCustomConc
     concept_relationship.valid_start_date(ci:cf) = repmat(concept.valid_start_date(k),2,1);
     concept_relationship.valid_end_date(ci:cf) = repmat(concept.valid_end_date(k),2,1);
 end
+
+% Store all custom concept-related tables in the output struct
+sOMOPtables.vocabulary = vocabulary;
+sOMOPtables.concept = concept;
+sOMOPtables.concept_relationship = concept_relationship;
+
 %#######################################################################
 
 %--------------------------------------------------------------------------
 % Map the data from the combined temporary table into the standard
 % measurement and observation tables.
-nrecTot = height(tMeas);
 pMeas = tMeas.measTable=="measurement";
 pObs  = tMeas.measTable=="observation";
 nrecMeas = sum(pMeas);
@@ -908,7 +937,7 @@ observation = tableBuilderOMOP('observation',nrecObs);
 % measurement.measurement_id
 % measurement.person_id
 % measurement.visit_occurrence_id
-measurement.measurement_id = (1:nrecMeas)';
+measurement.measurement_id = int64(1:nrecMeas)';
 measurement.person_id = tMeas.person_id_FK(pMeas);
 measurement.visit_occurrence_id = tMeas.visit_id_FK(pMeas);
 
@@ -962,28 +991,126 @@ measurement.measurement_source_concept_id = ...
        mapToConceptsFromVocab('measurement','measurement_source_concept_id',tMeas.measType(pMeas),false);
 measurement.measurement_source_value = tMeas.measType(pMeas);
 
+% Store the measurement table in the output struct
+sOMOPtables.measurement = measurement;
 
 
-%% Assemble OMOP CDM observation table
-% In the observation table can be inserted every ECG-related information
-% represented by concepts that don't belong to the domains of the other
-% tables created so far.
+%-----------------------------------------------------------------------
+% observation.observation_id
+% observation.person_id
+% observation.visit_occurrence_id
+observation.observation_id = int64(1:nrecObs)';
+observation.person_id = tMeas.person_id_FK(pObs);
+observation.visit_occurrence_id = tMeas.visit_id_FK(pObs);
 
+%-----------------------------------------------------------------------
+% observation.obs_event_field_concept_id
+% observation.observation_event_id
+% Define the link between each measure and the procedure record (i.e., ECG
+% signal) from which the measure was calculated
+measConnTbl = repmat("procedure_occurrence",nrecObs,1);
+observation.obs_event_field_concept_id = ...
+       mapToConceptsFromVocab('observation','obs_event_field_concept_id',measConnTbl);
+observation.observation_event_id = tMeas.procedure_id_FK(pObs);
+
+%-----------------------------------------------------------------------
+% observation.observation_date
+% observation.observation_datetime
+vdtStart = arrayfun(@(prid) datetime( ...
+           procedure_occurrence.procedure_datetime(procedure_occurrence.procedure_occurrence_id==prid), ...
+           'InputFormat','uuuu-MM-dd HH:mm:ss' ),...
+           tMeas.procedure_id_FK(pObs));
+observation.observation_date = string(vdtStart,'uuuu-MM-dd');
+observation.observation_datetime = string(vdtStart,'uuuu-MM-dd HH:mm:ss');
+
+%-----------------------------------------------------------------------
+% observation.value_as_number
+% observation.unit_concept_id
+% observation.unit_source_value
+observation.value_as_number = tMeas.NumValue(pObs);
+observation.unit_concept_id = ...
+       mapToConceptsFromVocab('observation','unit_concept_id',tMeas.measUnit(pObs),false);
+observation.unit_source_value = tMeas.measUnit(pObs);
+
+
+%-----------------------------------------------------------------------
+% observation.observation_type_concept_id
+% The list of accepted concepts for this field is the same as seen for
+% observation_period.period_type_concept_id.
+% Here we use the same concept selected for procedure.procedure_type_concept_id, 
+% for consistency.
+measType2 = repmat("EHRencounter",nrecObs,1);
+observation.observation_type_concept_id = ...
+       mapToConceptsFromVocab('observation','observation_type_concept_id',measType2);
+
+%-----------------------------------------------------------------------
+% observation.observation_concept_id (standard concepts, required for EVERY record)
+% observation.observation_source_concept_id (non-standard concepts, if any)
+% observation.observation_source_value
+observation.observation_concept_id = ...
+       mapToConceptsFromVocab('observation','observation_concept_id',tMeas.measType(pObs));
+observation.observation_source_concept_id = ...
+       mapToConceptsFromVocab('observation','observation_source_concept_id',tMeas.measType(pObs),false);
+observation.observation_source_value = tMeas.measType(pObs);
+
+% Store the observation table in the output struct
+sOMOPtables.observation = observation;
 
 
 %% Changes and checks for all the generated OMOP tables
 
-return;
+sOMOPtableNames = string(fieldnames(sOMOPtables));
 
-cOMOPtableNames = fieldnames(sOMOPtables);
-
-for tableName = cOMOPtableNames
+for tableName = sOMOPtableNames'
     % When the attribute type is string, truncate to the 50th character (string
     % attributes in OMOP CDM v5.4 tables are specifically varchar(50))
-    sOMOPtables.(tableName) = varfun(@(s) extractBefore(s,max([50,strlength(s)])+1), ...
-                                     sOMOPtables.(tableName), "InputVariables",@isstring);
+    posVarStr = find(varfun(@isstring,sOMOPtables.(tableName),'OutputFormat','uniform'));
+    for k = posVarStr
+        sOMOPtables.(tableName){:,k} = arrayfun(@(s) extractBefore(s,min([50,strlength(s)])+1),...
+                                                sOMOPtables.(tableName){:,k});
+    end
+    % When the attribute type is float (double or single), round to the 4th
+    % decimal digit to ensure compatibility with the "numeric" type of
+    % Postgresql (also because we don't need higher precision with the
+    % measurement we've currently selected)
+    posVarFloat = find(varfun(@isfloat,sOMOPtables.(tableName),'OutputFormat','uniform'));
+    for k = posVarFloat
+        sOMOPtables.(tableName){:,k} = round(sOMOPtables.(tableName){:,k},4);
+    end
 end
 
+
+%% Write OMOP tables to CSV if requested
+
+if writeOMOPTableCSVs
+
+    % Define and create the path for output CSV tables
+    if isempty(outputPath)
+        % If outputPath is not provided as an input argument, the
+        % output CSVs are produced in a subfolder inside the processed
+        % dataset's folder
+        outputPath = fullfile(pwd,'Transformed');
+    else
+        % If outputPath is provided as an input argument, it might
+        % either be a relative (in relation to the path from where the
+        % function was called) or an absolute path. In the first case,
+        % it must be fixed to work correctly in this function, as we
+        % "cd"ed to the directory with the extracted data.
+        if ~isAbsolutePath(outputPath)
+            outputPath = fullfile(origPath,outputPath);
+        end
+    end
+    if ~isfolder(outputPath), mkdir(outputPath); end
+
+    % Write each table to CSV, keeping its original name
+    for tableName = sOMOPtableNames'
+        outCSVpath = fullfile(outputPath,strcat(tableName,'.csv'));
+        writetable(sOMOPtables.(tableName),outCSVpath,'Delimiter',',',...
+                   'WriteVariableNames',true,'WriteMode','overwrite',...
+                   'QuoteStrings','all');
+    end
+
+end
 
 %% Move back to the original directory (if changed at the beginning) before exiting
 cd(origPath);

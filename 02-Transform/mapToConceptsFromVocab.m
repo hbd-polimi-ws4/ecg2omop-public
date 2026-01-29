@@ -58,12 +58,6 @@ if ~isequal(vocabList,vocabListUpd)
               ['There are repeated TableName-FieldName-SourceTerm triplets in the loaded vocabularies.' ...
               '\nDouble-check them and try again.']);
     end
-    % nPerTriplet = zeros(heigth(tAvlTriplets),1);
-    % for r = 1:heigth(tAvlTriplets)
-    %     pSingleTriplet = tAvlbTriplets.TableName==tAvlbTriplets.TableName(r) & ...
-    %                      tAvlbTriplets.FieldName==tAvlbTriplets.FieldName(r) & ...
-    %     nPerTriplet(r) = sum( tAvlbTriplets(tAvlbTriplets.TableName==tn,tAvlbTriplets.FieldName==fn,tAvlbTriplets.SourceName==s),tAvlbTriplets.TableName,tAvlbTriplets.FieldName,tAvlbTriplets.SourceTerm);
-    % end
 
     % Update the characteristics of the new vocabularies in the persistent
     % variable, after checking they are fine
