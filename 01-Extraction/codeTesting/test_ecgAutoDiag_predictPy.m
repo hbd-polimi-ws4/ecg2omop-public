@@ -1,3 +1,14 @@
+% DEBUG SCRIPT FOR RUNNING THE ECG AUTOMATIC DIAGNOSIS DETECTOR ON PYTHON
+% Kept just for reference, not needed to execute the pipeline.
+%
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2025-2026
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+% 
+
+
 
 % Define Python executable file path (Python executables in Conda envs work
 % just fine)

@@ -2,32 +2,36 @@ function [notesTable, comments] = COMextraction(recordName, dataset_Name, vararg
 % 
 % [notesTable, comments] = COMextraction(recordName, dataset_Name, varargin)
 %  
-%   Estrae informazioni varie a partire dal file .hea e ritorna:
+%   Extracts various information from the .hea file and returns:
 % 
 % - notesTable
-%           table con tutte le informazioni estratte da un record
-% - comments (Opzionale)
-%           elenco di tutti i commenti estratti dal fiel .hea di un record
+%           table with all the information extracted from a record
+% - comments
+%           list of all comments extracted from the .hea file of a record
 %
-% Parametri richiesti:
+% Required inputs:
 % - recordName
-%           nome del record analizzato
+%           name of the record analyzed
 % - dataset_Name
-%           nome del dataset di cui fa parte il record analizzato
+%           name of the dataset the analyzed record belongs to
 %
-% Parametri opzionali:
+% Optional inputs (Name-Value parameters):
 % - id
-%           id di partenza per iniziare a riportare nelle righe le
-%           informazioni estratte
+%           starting id to begin reporting the extracted information in the rows
 % - creaCSV
-%           flag per specificare se creare o meno il file .csv contenente
-%           le informazioni estratte
+%           flag to specify whether to create the .csv file containing
+%           the extracted information
 % - date        
-%           data di creazione del record estratto
+%           creation date of the extracted record
 % 
-% Scritto da Alessandro Carotenuto, 2024
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2024-2026
+%   Alessandro Carotenuto, 2024
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
 
-%% Check argomenti
+%% Check arguments
 ip = inputParser;
 ip.addRequired('recordName');
 ip.addRequired('dataset_Name');
@@ -35,69 +39,71 @@ ip.addParameter('id', 1, @(x) isnumeric(x) && (isscalar(x)||isempty(x)));
 ip.addParameter('creaCSV', false, @(x) islogical(x));
 ip.addParameter('date', [], @(x) ischar(x) || isstring(x) || isempty(x));
 
-% Parsing argomenti
+% Parse arguments
 ip.parse('recordName', 'dataset_Name', varargin{:});
 id = ip.Results.id;
 creaCSV = ip.Results.creaCSV;
 recordDate = ip.Results.date;
 
-%% Estrai i commenti a partire dall'header file
+%% Extract comments from the header file
 [ header_info ] = mhrv.wfdb.wfdb_header(recordName);
 comments = header_info.comments;
 
-% Variabili da salvare
-% Fine del record
+% Variables to save:
+% End of the record
 if ~isempty(recordDate)
     len = header_info.total_seconds;
     d = datetime(recordDate, 'Format', 'yyyy-MM-dd HH:mm:ss.SSS');
     endRecord = string(d + seconds(len));
 end
-% Età del paziente
+% Patient age
 age = '';
-% Genere del paziente
+% Patient gender
 sex = '';
-% Diagnosi
+% Diagnosis
 diagnosis = '';
-% Identificativo paziente
+% Patient identifier
 patient = '';
-% Altre annotazioni
+% Other notes
 otherNotes = '';
-% Estrazione del record_Name
+% Extract record_Name
 record_Name = tailPathRec(recordName, dataset_Name);
 
-%% Loop attraverso le linee
+%% Loop through the lines
 for i = 1:numel(comments)
     line = comments{i};
 
-    % Regex per l'età del paziente
+    % Regex for patient age
     ageMatch = regexpi(line, '(?:<)?(?:\<age\>)(?:>)?(?::)?\s*(\d+)', 'tokens');
 
-    % Regex per il genere del paziente
+    % Regex for patient gender
     sexMatch = regexpi(line, '(?:<)?(?:\<sex\>)(?:>)?(?::)?\s*(\S+)', 'tokens');
 
-    % Regex per la diagnosi
+    % Regex for diagnosis
     diagnosisPattern = '(?:<)?(?:\<diagnoses\>|\<diagnose\>|\<diagnosis report\>|\<diagnosis\>)(?:>)?(?::)?\s*(.*)';
     diagnosisMatch = regexpi(line, diagnosisPattern, 'tokens');
 
-    % Regex per l'identificativo del paziente
+    % Regex for patient identifier
     patientMatch = regexpi(line, '(?:<)?(?:\<patient\>|\<subject_id\>|\<subject id\>|\<subject-id\>|\<id\>|\<subject\>)(?:>)?(?::)?\s*(.+)', 'tokens');
-    % Se non è indicato nel file .hea cercare nel path
+    % If it is not indicated in the .hea file, search in the path (if
+    % none of the "fancier" regExp are matched, the record name will be
+    % considered as patient name
     if isempty(patientMatch)
         patientMatch = regexpi(recordName, '(?:patient|subject_id|subject id|subject-id|id|subject)\s*([^\\]+)', 'tokens');
     end
 
-    % Regex per altre annotazioni
+    % Regex for other notes
     lastCommentMatch = regexpi(line, '([^#]*)$', 'tokens', 'once');
 
-    % Estrai l'età
+    % Extract age
     if ~isempty(ageMatch), age = single(str2double(ageMatch{1}{1})); end
-    % Estrai il sesso
+    % Extract sex
     if ~isempty(sexMatch), sex = sexMatch{1}{1}; end
-    % Estrai la diagnosi
+    % Extract diagnosis
     if ~isempty(diagnosisMatch), diagnosis = strtrim(diagnosisMatch); end
-    % Estrai il numero del paziente
+    % Extract patient number
     if ~isempty(patientMatch), patient = patientMatch{1}{1}; end
-    % Estrai gli ultimi commenti
+    % Extract last comments
     if isempty(ageMatch) && isempty(sexMatch) && isempty(diagnosisMatch) && isempty(patientMatch)
         otherNotes = strcat(otherNotes," ", strtrim(lastCommentMatch{1}));
     end
@@ -105,10 +111,10 @@ end
 
 comments = comments';
 
-% Inizializza table per accogliere i valori
+% Initialize table to hold the extracted values
 notesTable = tableBuilder('notes', 1);
 
-%% Carica i dati nelle colonne della notesTable
+%% Load the data into the notesTable columns
 if ~isempty(id), notesTable.ID = id; end
 notesTable.RecordName = record_Name;
 notesTable.DatasetName = dataset_Name;
@@ -120,16 +126,16 @@ if ~isempty(sex), notesTable.Sex = sex; end
 if ~isempty(diagnosis), notesTable.Diagnosis = diagnosis; end
 if ~isempty(otherNotes), notesTable.OtherNotes = otherNotes; end
 
-%% Valuta se creare il file .csv
+%% Decide whether to create the .csv file
 if creaCSV
     % outputPath = strcat("C:/Users/Public/Outputs/", repoName);
-    outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+    outputPath = strcat(pwd,"/Outputs/", dataset_Name);
     if ~isfolder(outputPath), mkdir(outputPath); end
     outputFileName = strcat(outputPath,'/comm_',record_Name,'.csv');
     % Scrittura della tabella nel file CSV
     writetable(notesTable, outputFileName, 'Delimiter',',','WriteVariableNames',true);
 end
 
-%% Messaggio Finale
-fprintf('%i) Estrazione GeneralComments da %s completata!\n', id, record_Name);
+%% Final message
+fprintf('%i) Extraction of GeneralComments from %s completed!\n', id, record_Name);
 end

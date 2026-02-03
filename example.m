@@ -6,15 +6,15 @@ clc;
 %% Definitions
 
 % Everything you may need to change to run this script is in this section.
-% If you need to download the data, run the entire script so the support
-% functions written at the end will be loaded too.
 % If you have already downloaded and prepared the datasets as expected by
 % the ECG ETL pipeline, you can first run this section and, then, those
 % after the "Download Physionet ECG datasets" one.
 
+%--------------------------------------------------------------------------
 % Define datasets folder (if it doesn't exist, it'll be created)
-dataPath = 'Datasets3/';
+dataPath = 'Datasets4/';
 
+%--------------------------------------------------------------------------
 % Define dataset names and related .zip download URLs (they will be
 % downloaded only if a folder with the dataset name doesn't exist in
 % dataPath).
@@ -24,10 +24,29 @@ datasets = {'lobachevsky-university-ecg-db-1.0.1','https://www.physionet.org/con
             'st-petersburg-incart-arrhythmia-db-1.0.0','https://physionet.org/content/incartdb/get-zip/1.0.0/'
             't-wave-alternans-challenge-db-1.0.0','https://physionet.org/content/twadb/get-zip/1.0.0/'};
 
+%--------------------------------------------------------------------------
 % Define the output folder for the CSV tables produced by the Extraction
 % phase (if it doesn't exist, it'll be created). This folder will also be
 % the entry point of the Transform phase.
-outputExtractCSVpath = 'Outputs3/';
+outputExtractCSVpath = 'Outputs4/';
+
+%--------------------------------------------------------------------------
+% Define the Python paths required to predict conduction abnormalities from
+% ECG signals. The following global variables will be used in the
+% runEcgAutoDiagPy function.
+
+% Define Python executable file path (Python executables in Conda envs work
+% perfectly)
+global pathToPythonExec; %#ok<GVMIS>
+pathToPythonExec = '/home/preali/miniconda3/envs/ecg-omop/bin/python';
+
+% Define the directory containing the Python scripts/functions of the ECG
+% diagnosis detector (i.e., the root path where HBD-WS4 fork of the
+% GitHubProject "automatic-ecg-diagnosis" has been cloned).
+% NB: must end with '/'
+global pathToPythonFunctions; %#ok<GVMIS>
+pathToPythonFunctions = '/mnt/hdd_data/preali/GitHubProjects/automatic-ecg-diagnosis/';
+
 
 %% Adding all paths needed to run the ETL pipeline
 setup_ecg2omop();
@@ -124,88 +143,21 @@ sOMOPtables = MAINtransform('inputCSVPath',outputExtractCSVpath,...
 
 
 %% Execute the Load phase on all datasets
+
+% Set up the connection to a running Postgresql server (the server must be
+% started before running this section or an error will be thrown while
+% executing MAINload)
+sPGconnOpt.pgport = 5432;
+sPGconnOpt.username = 'postgres';
+sPGconnOpt.password = 'password';
+sPGconnOpt.serverAddress = 'localhost';
+sPGconnOpt.pgdbname = 'omop54';
+
+% Load the transformed OMOP CDM tables into the running DB
+% NB: Set the dryrun parameter as you need, as explained in the MAINload
+%     function help.
 outputTransformCSVpath = fullfile(outputExtractCSVpath,'Transformed');
 [sOMOP_recLoaded,sOMOP_recNotLoaded] = MAINload('inputCSVPath',outputTransformCSVpath,...
+                                                'sPGconnOpt',sPGconnOpt,...
                                                 'dryrun',false);
 
-
-%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% SUPPORT FUNCTIONS
-
-%--------------------------------------------------------------------------
-% DOWNLOAD FILE FUNCTION (showing progress during download)
-function downloadFileWithProgress(outFilePath,url,overwrite)
-
-% Add classes we need to the current packages and classes import list (this
-% affects only the function where "import" is called)
-import matlab.net.http.*
-
-% Define defaults for optional variables
-if ~exist('overwrite','var') || isempty(overwrite)
-    overwrite = false;
-end
-
-% Check if local file already exists
-if exist(outFilePath,'file')
-    if overwrite
-        fprintf('\n\tFile already existing and overwrite requested: deleting original file.');
-        delete(outFilePath);
-    else
-        fprintf('\n\tFile already existing: download cancelled.');
-        return;
-    end
-end
-
-% Send a request to the HTTP/HTTPS web server to get size of the file being
-% downloaded
-req = RequestMessage('HEAD');
-resp = send(req, url);
-contentLengthField = resp.getFields('Content-Length');
-totFileSize = str2double(contentLengthField.Value);
-totFileSizeMB = totFileSize/1024/1024;
-
-% Initiate file download in a separate batch process (requires Parallel
-% Computing Toolbox)
-job = batch(@websave,0,{outFilePath,url});
-
-% When the separate download job is created, initialize the object to
-% trigger job cancellation: if this function terminates for any reason
-% (e.g., the user cancels the execution through CTRL+C), we instruct Matlab
-% to interrupt the download job
-cleanupObj = onCleanup(@()cancelDownloadJob(job,outFilePath));
-
-% Wait for the job to start. When it begins, regularly check file size
-% until the file has been downloaded entirely
-fprintf('\n\tWaiting for web server response.');
-wait(job,'running');
-while ~strcmp(job.State,'finished')
-    f = dir(outFilePath);
-    if ~isempty(f)
-        currFileSizeMB = f.bytes/1024/1024;
-        fprintf('\n\tDownloaded %.3f out of %.3f',currFileSizeMB,totFileSizeMB);
-    end
-    pause(5);
-end
-
-fprintf('\n\tDownload completed.\n');
-
-end
-
-%--------------------------------------------------------------------------
-% CLEANUP FUNCTION (to be executed whenever downloadFileWithProgress terminates)
-function cancelDownloadJob(job,outFilePath)
-
-if ~strcmp(job.State,'finished')
-    % Cancel the download job
-    cancel(job);
-    % Delete partially downloaded files (if any)
-    if exist(outFilePath,'file')
-        delete(outFilePath);
-    end
-    fprintf('\n\tDownload interrupted.')
-end
-
-end
-
-%--------------------------------------------------------------------------

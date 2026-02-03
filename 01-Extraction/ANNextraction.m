@@ -2,32 +2,43 @@ function annotationTable = ANNextraction(recordName, dataset_Name, varargin)
 % 
 % annotationTable = ANNextraction(recordName, dataset_Name, varargin)
 %  
-%   Estrae le annotazioni da un record ECG e ritorna:
+% Extracts annotations from an ECG record and returns:
 % 
 % - annotationTable
-%           table con le annotazioni estratte 
+%           table containing the extracted annotations
 %
-% Parametri richiesti:
+% Required inputs:
 % - recordName
-%           nome del record analizzato
+%           name of the analyzed record
 % - dataset_Name
-%           nome del dataset di cui fa parte il record analizzato
+%           name of the dataset the analyzed record belongs to
 %
-% Parametri opzionali:
+% Optional inputs (Name-Value parameters):
 % - id
-%           id di partenza per iniziare a riportare nelle righe le
-%           informazioni estratte
+%           starting id (primary key) from which to begin reporting the
+%           extracted information in the output table rows. Default: 1
 % - creaCSV
-%           flag per specificare se creare o meno il file .csv contenente
-%           le informazioni estratte
+%           flag specifying whether or not to create the .csv file
+%           containing the extracted information (only useful for debug)
+%           Default: false
 % - toEnd        
-%           numero di samples a cui l'estrazione si deve fermare
+%           maximum number of samples after which the extraction of
+%           annotations must stop
+%           Default: [], which stands for 'all available beat annotations'.
 % - fk_id
-%           id per associare una tabella principale di riferimento
+%           id used to associate a main reference table (foreign key).
+%           Default: []
 %
-% Scritto da Alessandro Carotenuto, 2024
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2024-2026
+%   Alessandro Carotenuto, 2024
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+% 
+% 
 
-%% Check argomenti
+%% Input checks
 ip = inputParser;
 ip.addRequired('recordName');
 ip.addRequired('dataset_Name');
@@ -38,7 +49,7 @@ ip.addParameter('ext', [], @(x) ischar(x) || isstring(x) || isempty(x));
 ip.addParameter('toEnd', [], @(x) isnumeric(x) && (isscalar(x)||isempty(x)));
 ip.addParameter('fk_id', [], @(x) isnumeric(x) && (isscalar(x)||isempty(x)));
 
-% Parsing argomenti
+% Input parsing
 ip.parse('recordName', 'dataset_Name', varargin{:});
 id = ip.Results.id;
 creaCSV = ip.Results.creaCSV;
@@ -47,31 +58,31 @@ ext = ip.Results.ext;
 toEnd = ip.Results.toEnd;
 fk_id = ip.Results.fk_id;
 
-% Estrazione del record_Name
+% record_Name extraction
 record_Name = tailPathRec(recordName, dataset_Name);
 
-% Trova la sampling frequency Fs per il timestamp
+% Get the sampling frequency for the timestamps
 header_info = mhrv.wfdb.wfdb_header(recordName);
 Fs = header_info.Fs;
 
-%% Estrazione dei dati
-% Se non è presente il file ANNOTATORS usa ecgpuwave o altre funzioni
+%% Data extraction
+% If the ANNOTATORS file is not present, use ecgpuwave or other functions
 if ~ext_bool
     ext = 'zqrs';
     ecgpuwave(record_Name, ext);
-    % Controlla il risultato di ecgpuwave
+    % Check the result of ecgpuwave
     s = dir([record_Name,'.',ext]);
-    % Se il recordName passato ad ecgpuwave è troppo lungo l'estrazione non
-    % avviene correttamente, quindi è preferibile visitare la directory del
-    % record ed eseguire direttamente lì la funzione
-    if height(s) == 0
+    if isempty(s)
+        % If the recordName passed to ecgpuwave is too long, the extraction
+        % does not happen correctly and ecgpuwave doesn't save any file. So we
+        % try again after visiting the record directory
         [path, rec, ~] = fileparts(recordName);
         org = cd(path);
         ecgpuwave(rec, ext);
         cd(org);
-        % Se ecgpuwave non funziona usa le altre funzioni
-        % e unisci le annotazioni
-    elseif (height(s) ~= 0 && s.bytes == 0)
+    elseif (~isempty(s) && s.bytes == 0)
+        % If ecgpuwave, instead, returned a file but this is 0 bytes in
+        % size, use the other functions and merge the annotations
         gqrs(record_Name, 'N', 1, 1, 1.00, 'gqrs');
         sqrs(record_Name);
         wqrs(record_Name);
@@ -82,16 +93,15 @@ end
 
 [ann,anntype,subtype,chan,num,aux] = rdann(record_Name,ext);
 
-% Esegue la pulizia degli eventuali file temporanei
+% Cleans up any temporary files
 if ~ext_bool
-    % Elimina i file con estensione .*qrs
+    % Delete files with extension .*qrs
     delete([fileparts(recordName), '/*qrs']);
     delete([fileparts(recordName), '/fort*']);
 end
 
-% Controllo che i valori siano tutti positivi
-% in caso contrario verranno eliminati assieme
-% agli altri valori corrispondenti
+% Check that all values are positive otherwise they will be deleted
+% together with the other corresponding values
 if any(ann < 0)
     ann(ann < 0) = [];
     anntype(ann < 0) = [];
@@ -101,19 +111,19 @@ if any(ann < 0)
     aux((ann < 0),:) = [];
 end
 
-%% Creazione della annotationTable
-% Valuta quanti campioni salvare
+%% Creation of the annotationTable
+% Evaluate how many samples to save
 l = length(ann);
 if l >= trace(toEnd)
     n_rows = (~isempty(toEnd))*(trace(toEnd)) + (isempty(toEnd))*l;
 else
-    fprintf(['Il numero di campioni estraibili dal record %s è %d,' ...
-        ' inferiore a %d, numero di campioni richiesto\n'], record_Name, l, toEnd);
+    fprintf(['The number of samples that can be extracted from record %s is %d,' ...
+        ' less than the %d samples requested\n'], record_Name, l, toEnd);
     n_rows = l;
 end
 
-% Inizializza table per accogliere i valori controllando se è richiesta
-% una tabella con o senza foreign key
+% Initialize table to hold the annotation values, checking whether a table
+% is required with or without foreign key
 if isempty(fk_id)
     annotationTable = tableBuilder('annotations_no_fk', n_rows);
     annotationTable.RecordName = repmat(record_Name, n_rows,1);
@@ -123,7 +133,7 @@ else
     annotationTable.FK_ID = repmat(fk_id, n_rows,1);
 end
 
-%% Carica i dati nelle colonne della annotationTable
+%% Load the data into the columns of the annotationTable
 annotationTable.ID = (id:id+n_rows-1)';
 annotationTable.Timestamp = TMSextraction((ann(1:end)-1)/Fs, n_rows);
 annotationTable.Sample = (ann(1:n_rows)-1);
@@ -145,16 +155,16 @@ for i = 1:n_rows
     end
 end
 
-%% Valuta se creare il file .csv
+%% Create the .csv file if requested
 if creaCSV
     % outputPath = strcat("C:/Users/Public/Outputs/", repoName);
-    outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+    outputPath = strcat(pwd,"/Outputs/", dataset_Name);
     if ~isfolder(outputPath), mkdir(outputPath); end
     outputFileName = strcat(outputPath,'/anno_',recordName,'.csv');
-    % Scrittura della tabella nel file CSV
+    % Write the table to the CSV file
     writetable(annotationTable, outputFileName, 'Delimiter',',','WriteVariableNames',true);
 end
 
-%% Messaggio Finale
+%% Final message
 fprintf('%i) Estrazione Annotations da %s completata!\n', fk_id, record_Name);
 end

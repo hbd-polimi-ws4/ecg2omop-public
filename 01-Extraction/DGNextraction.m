@@ -35,7 +35,7 @@ function autoDiagTable = DGNextraction(smpTable, recordName, dataset_Name, varar
 %           with the ones in output from this function
 %
 % Contributors:
-%   Pierluigi Reali, Ph.D., 2024-2026
+%   Pierluigi Reali, Ph.D., 2025-2026
 %
 % Affiliation:
 %   Department of Electronics Information and Bioengineering, Politecnico di Milano
@@ -178,17 +178,17 @@ end
 autoDiagTable.ID = (id:id+nfoundDiag-1)';
 autoDiagTable.AutoECGDiagnosis = foundDiag';
 
-%% Valuta se creare il file .csv
+%% Create the .csv file if requested
 if creaCSV
     % outputPath = strcat("C:/Users/Public/Outputs/", repoName);
-    outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+    outputPath = strcat(pwd,"/Outputs/", dataset_Name);
     if ~isfolder(outputPath), mkdir(outputPath); end
     outputFileName = strcat(outputPath,'/dgn_',recordName,'.csv');
-    % Scrittura della tabella nel file CSV
+    % Write the table to the CSV file
     writetable(autoDiagTable, outputFileName, 'Delimiter',',','WriteVariableNames',true);
 end
 
-%% Messaggio Finale
+%% Final message
 fprintf('%i) Extraction of automatically detected ECG diagnoses from %s completed!\n', id, record_Name);
 
 end

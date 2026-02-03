@@ -1,12 +1,59 @@
 function outS = runEcgAutoDiagPy(ecg_chunked)
+% 
+% outS = runEcgAutoDiagPy(ecg_chunked)
+%  
+% Support function that orchestrates the communication between Matlab and
+% Python environments to predict conduction abnormalities from ECG signals.
+% In summary, this function: 1) creates the temporary HDF5 file with the
+% data structure expected by the ECG diagnoses detector (shape: ch,
+% samplesPerChunk, chunks); 2) analyzes the ECG exam chunk-by-chunk; 3)
+% returns the diagnoses detected for each chunk.
+% It returns:
+% 
+% - outS
+%           struct array containing: the matrix of prediction scores
+%           (sOut.y_scores), with one row for each analyzed segment of ecg
+%           signals and one column for each abnormality evaluated by the
+%           diagnosis detector; the vector of labels (sOut.diagnosis)
+%           associated with each column of the sOut.y_score matrix, to
+%           remind which conduction abnormalities each score is referred
+%           to; an array of strings (outS.y_labels), containing, for each
+%           element, the list of underscore-separated abnormalities found
+%           over-threshold for each ECG segment.
+%
+% Required inputs:
+% - ecg_chunked
+%           3D matrix of ECG signals, already structured as expected by the
+%           ECG diagnosis detector: ECGchannels x samplesPerChunk x chunks
+%
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2025-2026
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+% 
+% 
+
+%% USER-DEFINED VARIABLES (paths for the Python env to be used)
+% If those have been set as global variables outside this function, the set
+% values will be used. Otherwise, the values specified here will be
+% considered.
 
 % Define Python executable file path (Python executables in Conda envs work
-% just fine)
-pathToPythonExec = '/home/preali/miniconda3/envs/ecg-omop/bin/python';
+% perfectly)
+global pathToPythonExec; %#ok<GVMIS>
+if isempty(pathToPythonExec)
+    pathToPythonExec = '/home/preali/miniconda3/envs/ecg-omop/bin/python';
+end
 
-% Define the directory containing all Python scripts (must end with '/')
-pyPath = '/mnt/hdd_data/preali/GitHubProjects/automatic-ecg-diagnosis/';
+% Define the directory containing the ECG diagnosis detector Python
+% scripts. NB: must end with '/'
+global pathToPythonFunctions; %#ok<GVMIS>
+if isempty(pathToPythonFunctions)
+    pathToPythonFunctions = '/mnt/hdd_data/preali/GitHubProjects/automatic-ecg-diagnosis/';
+end
 
+%% Function routine
 % Set the Python environment up if it hasn't been done yet.
 % pyrun fails when loading Tensorflow, if pyenv is not called from Matlab
 % with the ExecutionMode set to OutOfProcess.
@@ -21,7 +68,7 @@ end
 % Python environment has just been created, hence its status is not "Loaded".
 needImport = ~strcmp(char(pe.Status),'Loaded');
 if needImport
-    origPath = cd(pyPath);
+    origPath = cd(pathToPythonFunctions);
     pyrun("from predict_fun import predict_diagnosis, write_hdf5_from_matlab");
 end
 % Go back to the initial path after the "imports"
@@ -42,7 +89,7 @@ pyrun("write_hdf5_from_matlab(hdf5_out_path, hdf5_dataset_name, matlab_array)",.
 %     automated diagnosis tool), we need to unpack the dataframe to its
 %     components (namely, "y_score", "diagnosis", and "y_labels").
 datapath = hdf5_out_path;
-modelpath = [pyPath,'model/model.hdf5'];
+modelpath = [pathToPythonFunctions,'model/model.hdf5'];
 [~,y_score,diagnosis,y_labels] = pyrun(...
            "df,y_score,diagnosis,y_labels = predict_diagnosis(path_to_hdf5, path_to_model)",...
            ["df","y_score","diagnosis","y_labels"],...
@@ -58,7 +105,7 @@ outS.y_score = y_score;
 outS.y_labels = y_labels;
 outS.diagnosis = diagnosis;
 
-% Delete (permanently) the temporary HDF5 with the ECG tracings
+% Delete (permanently) the temporary HDF5 with the ECG traces
 prevState = recycle('off');
 delete(hdf5_out_path);
 recycle(prevState);

@@ -1,27 +1,42 @@
 function [ext, description, ext_bool] = EXTextraction()
-% Inizializza variabile booleana di ricerca
+% 
+% [ext, description, ext_bool] = EXTextraction()
+%  
+%   Support function that returns information about the annotation files,
+%   retrieved by analyzing the ANNOTATORS file, if available for the
+%   processed dataset.
+%
+% Contributors:
+%   Alessandro Carotenuto, 2024
+%   Pierluigi Reali, Ph.D., 2025
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+%
+
+% Initialize boolean search variable
 ext_bool = false;
-% Inizializza una variabile per le estensioni
+% Initialize a variable for extensions
 ext = '';
-% Inizializza una variabile per le descrizioni
+% Initialize a variable for descriptions
 description = '';
 
-% Controlla se il file ANNOTATORS è presente nella directory
+% Check if the ANNOTATORS file is present in the directory
 dir_info = dir(fullfile(pwd, '**', 'ANNOTATORS'));
 if ~isempty(dir_info)
-    % Setta il flag a true
+    % Set the flag to true
     ext_bool = true;
-    % Recupera le info sul folder del file
+    % Retrieve information about the folder containing the file
     filePath = dir_info.folder;
-    % Apri il file di input in lettura
+    % Open the input file for reading
     fid = fopen([filePath, '/ANNOTATORS'], 'r');
-    % Leggi il file riga per riga
+    % Read the file line by line
     comments = fgetl(fid);
-    % Estrai il tipo di estensione utilizzato
+    % Extract the type of extension used
     comm = strsplit(strtrim(comments),'\t');
     ext = comm{1};
-    % Estrai la descrizione dell'estensione utilizzata
+    % Extract the description of the extension used
     description = comm{2};
 else
-    disp('Nessuna estensione valida per le annotazioni riscontrata.')
+    disp('No valid extension for annotations found.')
 end

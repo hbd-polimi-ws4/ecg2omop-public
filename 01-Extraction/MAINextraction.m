@@ -1,12 +1,17 @@
-function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
+function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, annTableFull, hrvTableFull] = ...
+               MAINextraction(varargin)
 % 
-% [record_list, comTableFull, smpTableFull, dgnTableFull, rrTableFull, annTableFull, hrvTableFull] = MAINextraction(varargin)
+% [record_list, comTableFull, smpTableFull, dgnTableFull, rrTableFull, annTableFull, hrvTableFull] = ...
+%         MAINextraction(varargin)
 %  
 %   Main function to manage extraction of data and metadata from datasets
 %   to be executed in the dataset's root directory. It returns:
 % 
 % - record_list
-%       list of records available in a dataset, extracted from the RECORDS file
+%       list of records available in a dataset, extracted from the RECORDS
+%       file. Non-processed records, if any, will be returned in a
+%       failedRecords_<datasetName>.txt file in the output folder, if
+%       'writeFullCSVs' is set to true (default).
 % - comTableFull
 %       table with all the information extracted from a record
 % - smpTableFull
@@ -18,7 +23,8 @@ function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, a
 % - annTableFull
 %       table with the extracted annotations
 % - hrvTableFull
-%       table with the various HRV-based metrics that can be computed
+%       table with the various HRV-based metrics selected in
+%       MTRextraction.m
 %
 % Optional inputs (Name-value parameters):
 % - RECORDSpath
@@ -48,7 +54,7 @@ function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, a
 %           file). This option is useful to spare system memory and
 %           processing time. If there is no interest in exporting the
 %           pre-processed signals in a tabular form (e.g., to insert them
-%           into database), it is advised to use a small value for this
+%           into a database), it is advised to use a small value (>0) for this
 %           input argument (e.g., 10) to speed-up the Transform step of the
 %           ETL pipeline.
 %           Default: [], which stands for 'all available samples'.
@@ -57,14 +63,18 @@ function [record_list, comTableFull, smpTableFull, dgnTableFull, rrdTableFull, a
 %           that will be extracted in the rrdTableFull table (or relevant CSV
 %           file). As opposed to the previous one, this option doesn't have
 %           a real impact on system storage or resource usage and can be
-%           left at the default value.
+%           left to its default value.
 %           Default: [], which stands for 'all available RR intervals'.
 % - toEndAnn
 %           defines the maximum number of beat annotations per ECG recording
 %           that will be extracted in the annTableFull table (or relevant
 %           CSV file). Like toEndRR, this option doesn't have a real impact
-%           on system storage or resource usage and can be left at the
-%           default value.
+%           on system storage or resource usage and it is advised to leave
+%           it to its default value. Besides, MAINtransform will use the
+%           information in the annTableFull output table (or relevant CSV
+%           file) to derive useful patient diagnoses. Thus, extracting all
+%           the available annotations for each patient is fundamental for
+%           correct execution of the Transform step of the ETL.
 %           Default: [], which stands for 'all available beat annotations'.
 %
 % Contributors:
@@ -102,18 +112,6 @@ toEndAnn = ip.Results.toEndAnn;
 % yet during the current Matlab session.
 mhrv_init;
 
-%% Check the correct options are set for the WSDB toolbox
-
-% % Load WFDB configuration
-% [~,config]=wfdbloadlib;
-% 
-% % Check if the caching mechanism has been disabled to avoid downloading
-% % data from PhysioNet. This can result in errors and we assume that all ECG
-% % data have already been downloaded.
-% if config.CACHE ~= 0
-%     configPath = which('wfdbloadlib');
-%     error('MAINextraction:chkWFDBconfig','The CACHE variable in %s must be set to 0. Restart Matlab afterwards!',configPath);
-% end
 
 %% Process all data files found in the RECORDS file
 
@@ -135,25 +133,26 @@ dir_info = dir(fullfile(pwd, '**', 'RECORDS'));
 % Check whether the RECORDS file is present in the current directory.
 if ~isempty(dir_info)
     folderPath = dir_info.folder;
-    % Leggi i percorsi dei file da RECORDS
+    % Read file paths from RECORDS
     fid = fopen([folderPath, '/RECORDS'], 'r');
     file_list = textscan(fid, '%s', 'Delimiter', '\n');
     fclose(fid);
 
-    % Estrai il nome del dataset
+    % Extract dataset name
     pathParts = split(pwd, {'/','\'});
     dataset_Name = pathParts{end};
 
-    % Cell string array contenente i percorsi dei file da processare
+    % Cell array containing file paths of the records to be processed
     record_list = file_list{1};
 
-    % Recupera l'estensione dall'ANNOTATORS file, se presente
+    % Retrieve the extension from the "ANNOTATORS" file, if available. If
+    % there is, ECG annotations are available too for the current dataset
     [extension, ~, ext_bool] = EXTextraction();
 
 
     %% Initialization of output tables
 
-    % Tables to be preserved in memory (mostly will be returned as empty if
+    % Tables to be preserved in memory (most will be returned as empty if
     % writeFullCSVs is requested)
     comTableFull = tableBuilder('notes', 0);
     if linkTablesWithFKid
@@ -198,35 +197,41 @@ if ~isempty(dir_info)
     end
     firstCSVwrite = true;
 
-    % Flag for potentially failed RECORDS output
+    % Initialize flag to mark the presence of failed RECORDS output
     firstNotFoundRecord = true;
 
-    %% Itera attraverso i percorsi dei file e applica le tue funzioni
+    %% Iterate through record file paths and Extract info and features
     for i = 1:length(record_list)
-        % Ottieni il percorso completo del file
+        % Get full record path
         record_path = fullfile(folderPath, record_list{i});
-        % Riporta il nome del record
+        % Get record name (excluding possible extensions)
         [~, recordName, ~] = fileparts(record_path);
-        % Riporta informazioni sul folder che contiene i record
+        % Get list of files available in the record path
         folder_info = dir([fileparts(record_path),'/*']);
 
-        % Estrazione della data di creazione del record
+        % Extract record creation date from the file attributes. The header
+        % files of the tested PhysioNet datasets do not contain this
+        % information, though it might be available sometimes.
+        % COMextraction could be modified to read the date and time of the
+        % acquisition from the header file and, when it is available,
+        % replace the value of dat_str.
         val = [recordName,'.hea'];
         fld = {folder_info.name};
         pos = find(strcmp(fld, val), 1);
         dat = [folder_info(pos).date, '.000'];
         dat_str = string(datetime(translateDate(dat), 'Format', 'yyyy-MM-dd HH:mm:ss.SSS'));
 
-        % Verifica se il file esiste prima di applicare le funzioni
+        % Check if the record indicated in the RECORDS file actually exists
+        % before applying the Extraction functions
         regex_pattern = ['^', recordName, '\.'];
         found = any(~cellfun(@isempty, regexp({folder_info.name}, regex_pattern)));
 
         if found
-            %% Esegui le funzioni sul file
+            %% Feature and information Extraction from the record
 
-            % Se e' la prima volta che viene eseguito questo ciclo, bisogna
-            % creare i file CSV delle tabelle in output a cui poi andranno aggiunte le
-            % righe nelle successive iterazioni
+            % If this is the first time this loop is executed, the output
+            % table CSV files must be created, to which the rows will then
+            % be added in subsequent iterations
             if firstCSVwrite
                 wvarNames = true; wCSVMode = 'overwrite';
             else
@@ -310,22 +315,25 @@ if ~isempty(dir_info)
             firstCSVwrite = false;
 
         else
-            disp(['Il file non esiste: ' recordName]);
+            disp(['Record file does not exist: ' recordName]);
 
-            % Aggiungiamo il record al TXT con la lista di quelli non processati
-            if firstNotFoundRecord, wTXTMode = 'w'; else, wTXTMode = 'a'; end
-            fid_failedRecords = fopen( strcat(outputPath,'/failedRecords_',dataset_Name,'.txt'), wTXTMode );
-            fprintf(fid_failedRecords,'%s\n',recordName);
-            fclose(fid_failedRecords);
-
-            % Cambiamo il flag per effettuare append in eventuali
-            % successive iterazioni
-            firstNotFoundRecord = false;
+            if writeFullCSVs
+                % We add the record to the TXT containing the list of
+                % unprocessed ones
+                if firstNotFoundRecord, wTXTMode = 'w'; else, wTXTMode = 'a'; end
+                fid_failedRecords = fopen( strcat(outputPath,'/failedRecords_',dataset_Name,'.txt'), wTXTMode );
+                fprintf(fid_failedRecords,'%s\n',recordName);
+                fclose(fid_failedRecords);
+    
+                % We change the flag to perform append in any subsequent
+                % iterations
+                firstNotFoundRecord = false;
+            end
         end
     end
 
 else
-    disp("Nessun file RECORDS trovato. Impossibile procedere!");
+    disp("No RECORDS file detected in the processed path. Nothing to do.");
 end
 
 % Move back to the original directory (if changed at the beginning) before exiting

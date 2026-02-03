@@ -1,18 +1,50 @@
 function [tableFull,tIDmap_out] = importExtractedTables(filePrefix,tableFull,atLeastOne,tIDmap)
-
-% filePrefix = string with which CSV files to be imported must begin.
-% tableFull = table to which data records imported from CSV files must be
-%             added. Generally, this is an empty table, providing a
-%             template for the imported data in terms of data
-%             variables that should be included and related data types.
-% atLeastOne = optional flag. If true, at least one CSV file with the
-%              specified prefix must be available in the current path;
-%              otherwise, an error will be thrown.
-% tIDmap = optional table made of three columns: orig, DatasetNameFromFile, new.
-%          If provided, this table is used to map the foreign key present in the
-%          imported tables, corresponding to the original IDs (tIDmap.orig),
-%          to the new ones provided in tIDmap.new, using tIDmap.DatasetNameFromFile
-%          to select the tIDmap rows related to the imported dataset.
+% 
+% [tableFull,tIDmap_out] = importExtractedTables(filePrefix,tableFull,atLeastOne,tIDmap)
+%  
+% This function imports the CSV files produced by the MAINextraction
+% routine in a corresponding Matlab table.
+% It returns:
+% 
+% - tableFull
+%           the requested table previously produced by MAINextraction.
+% - tIDmap_out
+%           table showing the mapping between the original IDs of each
+%           imported table and the new ones assigned to the fullTable
+%           returned by this function. This tIDmap_out table can be used
+%           for subsequent calls of this function to transform,
+%           accordingly, foreign keys from the other tables to be
+%           imported (see tIDmap input description for further details).
+%
+% Required inputs:
+% - filePrefix
+%           string with which CSV files to be imported must begin.
+% - tableFull 
+%           table to which data records imported from CSV files must be
+%           added. Generally, this is an empty table, providing a
+%           template for the imported data in terms of data
+%           variables that should be included and related data types.
+%
+% Optional inputs (positional, can be skipped through []):
+% - atLeastOne
+%           optional flag. If true, at least one CSV file with the
+%           specified prefix must be available in the current path;
+%           otherwise, an error will be thrown.
+%           Default: false
+% - tIDmap
+%           optional table made of three columns: orig, DatasetNameFromFile, new.
+%           If provided, this table is used to map the foreign key present in the
+%           imported tables, corresponding to the original IDs (tIDmap.orig),
+%           to the new ones provided in tIDmap.new, using tIDmap.DatasetNameFromFile
+%           to select tIDmap rows related to the imported dataset.
+%
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2025-2026
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+% 
+% 
 
 %% Check input arguments and initialize defaults for optional ones
 if ~exist('atLeastOne','var') || isempty(atLeastOne)

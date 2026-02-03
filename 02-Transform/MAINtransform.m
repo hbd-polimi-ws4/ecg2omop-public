@@ -4,38 +4,40 @@ function sOMOPtables = MAINtransform(varargin)
 %  
 %   Main function to transform the tables created by the MAINextraction
 %   procedure and map the relevant information into OMOP-compliant tables.
-%   It returns a set of tables that can be imported in an OMOP SQL
-%   database, specifically:
+%   It returns the requested set of standard tables that can be imported
+%   into an OMOP SQL database.
 % 
-% - person
-%       ...
-% - condition_era
-%       ...
-%
+% - sOMOPtables
+%       struct containing, in separate homonimous fields, one of the
+%       standard OMOP tables obtained by transforming the previously
+%       extracted data. For example, "sOMOPtable.person" contains OMOP CDM
+%       "person" table, "sOMOPtable.condition_occurrence" contains OMOP CDM
+%       "condition_occurrence" table, and so on.
 %
 % Optional inputs (Name-value parameters):
-% - RECORDSpath
-%           path where the "RECORDS" file of the Physionet dataset to be
-%           processed can be found. Default: pwd
-% - writeFullCSVs
-%           if this flag is true, one .csv file for each "Full" table
-%           documented above will be written record-by-record, once the
-%           related ECG data have been processed. All the output tables of
-%           this function, except for comTableFull, will be returned empty
-%           to save memory. If this flag is set to false, the opposite will
-%           happen, namely no .csv will be created, but the output tables
-%           will be returned with the expected content. Default: true
-% - linkTablesWithFKid
-%           if this flag is true, output tables other than comTableFull
-%           will be provided with an fk_id column, which presents foreign
-%           keys linking each table entry to the primary key of
-%           comTableFull. Each entry in comTableFull refers to a single ECG
-%           exam in the RECORDS file. If this flag is set to false, foreign
-%           keys will not be used and all tables will be provided with
-%           explicit "RecordName" and "DatasetName" columns. Default: true
+% - inputCSVPath
+%           path to the directory where the CSV files to be imported (extracted by
+%           MAINextraction) are. CSV files extracted from different
+%           datasets, named exactly as returned by MAINextraction, must be
+%           inserted in the same folder (with no subfolders).
+%           Default: pwd
+% - writeOMOPTableCSVs
+%           if this flag is true, one .csv file for each output OMOP table
+%           will be written, named as the OMOP table, itself, plus ".csv".
+%           Default: true
+% - outputPath
+%           path to the directory where the output .csv OMOP tables should
+%           be written. If it doesn't exist, it will be created.
+%           Default: pwd/Transformed
+% - comTableFull, smpTableFull, dgnTableFull, rrdTableFull, annTableFull, hrvTableFull
+%           each output table produced by MAINextraction can be provided
+%           separately as an input argument, instead of being loaded from a
+%           CSV file.
+%           Default: empty tables of the appropriate type, to be filled in
+%                    with records loaded from CSV files.
 %
 % Contributors:
-%   Pierluigi Reali, Ph.D., 2024-2026
+%   Pierluigi Reali, Ph.D., 2025-2026
 %
 % Affiliation:
 %   Department of Electronics Information and Bioengineering, Politecnico di Milano
@@ -716,34 +718,6 @@ sOMOPtables.condition_occurrence = condition_occurrence;
 % concept to be included into OMOP standard vocabularies, following the
 % official procedure:
 %    https://ohdsi.github.io/CommonDataModel/vocabRequest.html
-%
-% #########################################################################
-% TO BE DELETED (OLD METHOD, NOT WELL-SUPPORTED BY OMOP DOCUMENTATION):
-% An acceptable practice is to use the field value_as_concept_id to further
-% refine the semantic description of the quantity that is measured. This
-% opens to the possibility of using the measurement_concept_id field to
-% indicate the "family" of measures that single measurement belongs to and,
-% as further specification, the concept stated in the
-% measurement_source_concept_id field.
-% Define custom OMOP vocabulary and concepts needed for the HRV metrics in
-% the measurement table. Official source:
-%       https://ohdsi.github.io/CommonDataModel/customConcepts.html
-% 
-% units_concept_id: si puo' usare per aiutare a distinguere "normalized
-% powers" dalle assolute (lasciando queste ultime senza niente). Popola
-% sempre il campo "source" in questa tabella.
-% "Very low frequency" lo aggiungerei come concetto custom, così da poter
-% caratterizzare anche quella variabile; anche "RMSSD". Lascerei fuori solo
-% "Total power" e "LF/HF" perché sono calcolabili dalle altre e, quindi,
-% non e' necessario lasciarle salvate direttamente (non avendo trovato
-% concetti adatti a descriverli e non valendo, quindi, la pena di
-% codificarli con concetti custom), pur essendo ritenuti marker utili per
-% l'identificazione di coorti di soggetti (Total power non tanto, in
-% realtà, perché molto dipendente dalla durata dell'acquisizione; a meno
-% che non si possa memorizzare anche la durata del segnale come metadato
-% aggiuntivo; si puo' anche fare riferimento alla differenza tra datetime
-% di fine e inizio procedura per quello).
-% #########################################################################
 
 %--------------------------------------------------------------------------
 % Derive missing measures from the extracted ECG information

@@ -1,4 +1,37 @@
 function tableBuilt = tableBuilder(type, rows)
+% 
+% tableBuilt = tableBuilder(type, rows)
+%  
+%   Support function to initialize the tables in which the information
+%   extracted from the data during MAINextraction will be inserted. It
+%   returns:
+% 
+% - tableBuilt
+%       table of the requested type, with the expected number of columns,
+%       variable name, and data types, and number of rows requested as an
+%       input.
+%
+% Required inputs:
+% - type
+%           array of char or string. Type of table to be returned (see the
+%           main "switch" below). By default, a table of the requested type
+%           with a foreign key column (FK_ID) will be returned. By adding
+%           the suffix "_no_fk" to this string, a table with no FK_ID
+%           column, but with the additional columns 'RecordName' and
+%           'DatasetName' will be returned instead.
+% - rows
+%           number of rows the tables should be initialized with. Every row
+%           will contain <missing> information of the expected data type.
+%           rows=0 initializes an empty table with the expected columns and
+%           data types.
+%
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2024-2026
+%   Alessandro Carotenuto, 2024
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+
 
 % Separate the table type from a possible "no foreign key" (_no_fk) request
 [type,fkStr] = strtok(type,'_');

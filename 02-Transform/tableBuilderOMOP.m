@@ -1,5 +1,36 @@
 function tableBuilt = tableBuilderOMOP(type, rows)
-
+% 
+% tableBuilt = tableBuilderOMOP(type, rows)
+%  
+%   Support function to initialize the OMOP tables that will be returned by
+%   MAINtransform. All the fields we require from these tables in our OMOP
+%   CDM schema must be declared here, with their standard name and data
+%   type.
+%   Note: remember to replace 'int64' with 'doubleNaN' for optional numeric
+%         fields, as 'int64' doesn't support any <missing> marker.
+%   This function returns:
+% 
+% - tableBuilt
+%       table of the requested type, with the expected number of columns,
+%       variable name, and data types, and number of rows requested as an
+%       input.
+%
+% Required inputs:
+% - type
+%           array of char or string. Type of OMOP table to be returned (see
+%           the main "switch" below and complete it as you need to carry
+%           out your Transform step).
+% - rows
+%           number of rows the output table should be initialized with.
+%           Every row will contain <missing> information of the expected
+%           data type. rows=0 initializes an empty table with the expected
+%           columns and data types.
+%
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2025-2026
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
 
 switch type
 

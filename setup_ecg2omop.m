@@ -7,7 +7,7 @@ function setup_ecg2omop()
 % pipeline.
 
 % Define ecg2omop toolbox folders to be added to the MATLAB path
-relativeToolboxPaths = {'01-Extraction','02-Transform','03-Load'};
+relativeToolboxPaths = {'01-Extraction','02-Transform','03-Load','supportFun'};
 
 % Obtain full paths on this system
 baseToolboxPath = fileparts(mfilename('fullpath'));

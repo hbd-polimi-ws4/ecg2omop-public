@@ -1,9 +1,26 @@
 function [N_samples, str_accepted_leads, num_accepted_leads] = LEADextraction(recordName)
-% Ottieni le informazioni sul record utilizzando la libreria WFDB
+% 
+% [N_samples, str_accepted_leads, num_accepted_leads] = LEADextraction(recordName)
+%  
+%   Support function that, given the ECG record to be processed as input,
+%   identifies standard leads, if available, using an approach based on
+%   regular expressions. It also returns the total number of samples
+%   available for the processed ECG record.
+%
+% Contributors:
+%   Alessandro Carotenuto, 2024
+%   Pierluigi Reali, Ph.D., 2025
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+%
+
+
+% Get record information using the WFDB library
 [ siginfo,~,~ ] = wfdbdesc(recordName);
 N_samples = siginfo.LengthSamples;
 
-% Elenco di sinonimi per i lead ECG da PhysioNet
+% List of synonyms for PhysioNet ECG leads
 ECG_synonyms = ["No signal", "No Signal", "no signal","Abdomen_1", "Abdomen_2", ...
     "Abdomen_3", "Abdomen_4", "A-I", "A-S", "avf", "aVF", "AVF+", "avl", "aVL", ...
     "AVL", "avr", "AVR", "CC5", "chan 1", "chan 2", "chan 3", "CM2", "CM4", "CM5", ...
@@ -20,10 +37,10 @@ ECG_synonyms = ["No signal", "No Signal", "no signal","Abdomen_1", "Abdomen_2", 
     "V2", "V2-V3", "v3", "V3", "v4", "V4", "V4-V5", "v5", "V5", "v6", "V6", ...
     "V", "V+", "vx", "vy", "vz"];
 
-% Regex per un ulteriore controllo
+% Regex for an additional check
 pattern = '^(ecg\s*-?\s*lead\s*-?)?(i|ii|iii|avr|avf|avl|v1|v2|v3|v4|v5|v6)(ecg\s*-?\s*lead\s*-?)?$';
 
-% Estrai i nomi delle derivazioni dal recordInfo
+% Extract lead names from recordInfo
 numChannels = width(siginfo);
 leads = cell(numChannels,2);
 for i = 1:numChannels
@@ -31,22 +48,22 @@ for i = 1:numChannels
     isMatch = regexpi(lead_name, pattern, 'once');
     lead_chan = i;
     if matches(lead_name, ECG_synonyms) || ~isempty(isMatch)
-        % salvo nella prima colonna di leads il nome del lead accettato
+        % save the accepted lead name in the first column of leads
         leads{i, 1} = renameLead(lead_name);
-        % salvo nella seconda colonna di leads il numero del canale del lead accettato
+        % save the channel number of the accepted lead in the second column of leads
         leads{i, 2} = lead_chan;
     end
 end
 
-% Inizializzazione stringhe
+% Initialize strings
 str_accepted_leads = string();
 num_accepted_leads = string();
 
-% Scansiona il cell array originale
+% Scan the original cell array
 for i = 1:length(leads)
-    % Verifica se la cella contiene "Discard" o è vuota
+    % Check whether the cell contains "Discard" or is empty
     if ~strcmp(leads{i,1}, "Discard") && ~isempty(leads{i,1})
-        % Aggiungi la cella al nuovo cell array
+        % Add the cell to the new cell array
         str_accepted_leads(i, 1) =  leads{i, 1};
         num_accepted_leads(i, 1) = leads{i, 2};
     end
@@ -54,7 +71,7 @@ end
 end
 
 function [new_lead_name] = renameLead(lead_name)
-% Possibili sinonimi
+% Possible synonyms
 Lead_aVF = ["avf", "aVF", "AVF+", "ECG AVF", "AVF", "ECG Lead AVF"];
 
 Lead_aVR = ["avr", "AVR","aVR", "ECG AVR", "ECG Lead AVR"];

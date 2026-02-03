@@ -1,4 +1,20 @@
 function description = EXPLextraction(codes, n)
+% 
+% description = EXPLextraction(codes, n)
+%  
+%   Support function that, given the code of PhysioNet ECG standard
+%   annotations, returns the extended description of that annotation.
+%   Based on code descriptions found here:
+%      https://archive.physionet.org/physiobank/annotations.shtml
+%
+% Contributors:
+%   Alessandro Carotenuto, 2024
+%   Pierluigi Reali, Ph.D., 2025
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+%
+
 description = string();
 
 physionetDict = containers.Map();

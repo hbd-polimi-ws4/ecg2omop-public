@@ -1,37 +1,47 @@
 function [hrvMetricsTable,varNamesSel] = MTRextraction(recordName, dataset_Name, varargin)
 % 
-% hrvMetricsTable = MTRextraction(recordName, dataset_Name, varargin)
+% [hrvMetricsTable,varNamesSel] = MTRextraction(recordName, dataset_Name, varargin)
 %  
-%   Estrae le metriche HRV da un record ECG e ritorna:
+%   Extracts HRV metrics from an ECG record and returns:
 % 
 % - hrvMetricsTable
-%          table con le varie metriche basate sull'HRV calcolabili
+%          table with the various computable HRV-based metrics
 % - varNamesSel
-%          variabili della tabella da mantenere al salvataggio
-%          delle tabelle nel main
+%          table variables of hrvMetricsTable (i.e., HRV indices) to keep
+%          when saving the tables in MAINextraction
 %
-% Parametri richiesti:
+% Required inputs:
 % - recordName
-%           nome del record analizzato
+%           name of the record being analyzed
 % - dataset_Name
-%           nome del dataset di cui fa parte il record analizzato
+%           name of the dataset the analyzed record belongs to
 %
-% Parametri opzionali:
+% Optional inputs (Name-Value parameters):
 % - id
-%           id di partenza per iniziare a riportare nelle righe le
-%           informazioni estratte
+%           starting id (primary key) used to begin reporting the
+%           extracted information in the output table rows. Default: 1
 % - creaCSV
-%           flag per specificare se creare o meno il file .csv contenente
-%           le informazioni estratte
+%           flag specifying whether or not to create the .csv file containing
+%           the extracted information (only useful for debug).
+%           Default: false
 % - ext
-%           flag per specificare l'eventuale estensione associata ad un
-%           file da cui estrarre le annotazioni
+%           char array or string specifying the possible extension
+%           associated with a file from which to extract annotations.
+%           Default: '' -> No annotation file available for the processed
+%                          record
 % - fk_id
-%           id per associare una tabella principale di riferimento
+%           id to associate a main reference table (foreign key)
 %
-% Scritto da Alessandro Carotenuto, 2024
+% Contributors:
+%   Pierluigi Reali, Ph.D., 2024-2026
+%   Alessandro Carotenuto, 2024
+%
+% Affiliation:
+%   Department of Electronics Information and Bioengineering, Politecnico di Milano
+% 
+% 
 
-%% Check argomenti
+%% Check inputs
 ip = inputParser;
 ip.addRequired('recordName');
 ip.addRequired('dataset_Name');
@@ -40,14 +50,14 @@ ip.addParameter('creaCSV', false, @(x) islogical(x));
 ip.addParameter('ext', '', @(x) ischar(x));
 ip.addParameter('fk_id', [], @(x) isnumeric(x) && (isscalar(x)||isempty(x)));
 
-% Parsing argomenti
+% Parse inputs
 ip.parse('recordName', 'dataset_Name', varargin{:});
 id = ip.Results.id;
 creaCSV = ip.Results.creaCSV;
 ext = ip.Results.ext;
 fk_id = ip.Results.fk_id;
 
-% Estrazione del record_Name
+% Extract record_Name
 record_Name = tailPathRec(recordName, dataset_Name);
 
 %% HRV indices extraction
@@ -66,9 +76,9 @@ catch ME
     hrv_metrics = mhrv.mhrv(record_Name);
 end
 
-%% Creazione della hrvMetricsTable
-% Inizializza table per accogliere i valori controllando se è richiesta
-% una tabella con o senza foreign key
+%% Create the hrvMetricsTable
+% Initialize table to hold the values, checking whether a table with or without
+% a foreign key is required
 if isempty(fk_id)
     hrvMetricsTable = tableBuilder('hrvMetrics_no_fk', 1);
     hrvMetricsTable.RecordName = record_Name;
@@ -78,7 +88,7 @@ else
     hrvMetricsTable.FK_ID = fk_id;
 end 
 
-%% Carica i dati nelle colonne della hrvMetricsTable
+%% Load data into the columns of hrvMetricsTable
 hrvMetricsTable.ID = id;
 for col = 1:width(hrv_metrics)
     hrvMetricsTable(:,col+1) = hrv_metrics(:, col);
@@ -140,16 +150,16 @@ if ecgDuration<180
 end
 
 
-%% Valuta se creare il file .csv
+%% Create .csv file if requested
 if creaCSV
     % outputPath = strcat("C:/Users/Public/Outputs/", repoName);
-    outputPath = strcat(pwd,"/Outputs/", dataset_Name); %PierMOD
+    outputPath = strcat(pwd,"/Outputs/", dataset_Name);
     if ~isfolder(outputPath), mkdir(outputPath); end
     outputFileName = strcat(outputPath,'/mhrv_',recordName,'.csv');
-    % Scrittura della tabella nel file CSV
+    % Write the table to the CSV file
     writetable(hrvMetricsTable, outputFileName, 'Delimiter',',','WriteVariableNames',true);
 end
 
-%% Messaggio Finale
-fprintf('%i) Estrazione HRVmetrics da %s completata!\n', id, record_Name);
+%% Final message
+fprintf('%i) HRVmetrics extraction from %s completed!\n', id, record_Name);
 end
