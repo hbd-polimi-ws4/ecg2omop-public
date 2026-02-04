@@ -12,7 +12,7 @@ clc;
 
 %--------------------------------------------------------------------------
 % Define datasets folder (if it doesn't exist, it'll be created)
-dataPath = 'Datasets4/';
+dataPath = 'Datasets/';
 
 %--------------------------------------------------------------------------
 % Define dataset names and related .zip download URLs (they will be
@@ -28,7 +28,7 @@ datasets = {'lobachevsky-university-ecg-db-1.0.1','https://www.physionet.org/con
 % Define the output folder for the CSV tables produced by the Extraction
 % phase (if it doesn't exist, it'll be created). This folder will also be
 % the entry point of the Transform phase.
-outputExtractCSVpath = 'Outputs4/';
+outputExtractCSVpath = 'Outputs/';
 
 %--------------------------------------------------------------------------
 % Define the Python paths required to predict conduction abnormalities from
