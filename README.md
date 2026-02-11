@@ -66,7 +66,9 @@ To work correctly, this ETL pipeline requires setting up some open-source compon
     
         *To restore a backup*, start the container without re-importing the vocabularies and setting the correct *constraints*: just comment all the lines of the `volume` section of `docker-compose.yml` and set the `CONSTRAINTS` parameter to "false" before running `docker compose up` as previously.  If you don't set the CONSTRAINTS to false, the restore procedure will fail. When the container is running, open pgadmin, connect to the postgresql server running on the container as before, right-click on the `omop54` DB and choose *Restore*, providing the previously created backup as input for the procedure.
 
-After all the above is done, you can download the content of the present GitHub repository and unzip all the files (or clone the repository) to a path of your choice. Then, take a look to the `example.m` script you can find in the base path of the repo, change everything that you need in the first section, and run it to test the ECG pipeline. It will download for you all the PhysioNet repositories that were considered to develop it.
+# Testing the ecg2-omop pipeline
+
+After all the above is done, you can download the content of the present GitHub repository and unzip all the files (or clone the repository) to a path of your choice. Then, take a look to the `example.m` script you can find in the base path of the repo, change everything that you need in the first section, and run it to test the ECG pipeline. It will download and organize for you all the PhysioNet repositories that were considered to develop it.
 
 # ETL pipeline structure explanation
 
