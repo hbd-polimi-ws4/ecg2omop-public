@@ -53,6 +53,14 @@ if isempty(pathToPythonFunctions)
     pathToPythonFunctions = '/mnt/hdd_data/preali/GitHubProjects/automatic-ecg-diagnosis/';
 end
 
+% Define the maximum amount of memory (in GB) usable by the
+% Matlab-instantiated Python environment (i.e., process) before restarting
+global pyProcessMemMax; %#ok<GVMIS>
+if isempty(pyProcessMemMax)
+    pyProcessMemMax = 16; %in GB
+end
+
+
 %% Function routine
 % Set the Python environment up if it hasn't been done yet.
 % pyrun fails when loading Tensorflow, if pyenv is not called from Matlab
@@ -69,7 +77,8 @@ end
 needImport = ~strcmp(char(pe.Status),'Loaded');
 if needImport
     origPath = cd(pathToPythonFunctions);
-    pyrun("from predict_fun import predict_diagnosis, write_hdf5_from_matlab");
+    pyrun(["from predict_fun import predict_diagnosis, write_hdf5_from_matlab",...
+           "import psutil"]);
 end
 % Go back to the initial path after the "imports"
 if needImport, cd(origPath); end
@@ -78,7 +87,7 @@ if needImport, cd(origPath); end
 % diagnosis tool
 hdf5_out_path = './ecgtemp.hdf5';
 pyrun("write_hdf5_from_matlab(hdf5_out_path, hdf5_dataset_name, matlab_array)",...
-       hdf5_out_path=hdf5_out_path,hdf5_dataset_name='tracings',matlab_array=ecg_chunked)
+       hdf5_out_path=hdf5_out_path,hdf5_dataset_name='tracings',matlab_array=ecg_chunked);
 
 
 % Call the function with the proper arguments from Matlab
@@ -109,5 +118,22 @@ outS.diagnosis = diagnosis;
 prevState = recycle('off');
 delete(hdf5_out_path);
 recycle(prevState);
+
+% Terminate the current Python environment (PE) if too much RAM has been
+% allocated to the related process (to prevent memory overflow errors). A
+% new PE will be started at the subsequent call of the present function.
+% This is needed as the memory allocated to the Python process started by
+% Matlab with the 'OutOfProcess' ExecutionMode increases continuously
+% across subsequent calls to this function. We tested that this
+% increase does not depend on the generated local Python variables, so we
+% can't do much else than restarting the PE on a regular basis.
+% NB: pyProcessMem is in GB.
+pyProcessMem = pyrun(["pyProcess = psutil.Process()",...
+                      "pyProcessMem = pyProcess.memory_info().rss/1024/1024/1024"],...
+                      "pyProcessMem");
+if pyProcessMem > pyProcessMemMax
+    terminate(pe);
+end
+
 
 end

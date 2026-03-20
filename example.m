@@ -12,7 +12,7 @@ clc;
 
 %--------------------------------------------------------------------------
 % Define datasets folder (if it doesn't exist, it'll be created)
-dataPath = 'Datasets/';
+dataPath = 'Datasets2/';
 
 %--------------------------------------------------------------------------
 % Define dataset names and related .zip download URLs (they will be
@@ -22,18 +22,19 @@ dataPath = 'Datasets/';
 % development and testing.
 datasets = {'lobachevsky-university-ecg-db-1.0.1','https://www.physionet.org/content/ludb/get-zip/1.0.1/'
             'st-petersburg-incart-arrhythmia-db-1.0.0','https://physionet.org/content/incartdb/get-zip/1.0.0/'
-            't-wave-alternans-challenge-db-1.0.0','https://physionet.org/content/twadb/get-zip/1.0.0/'};
+            't-wave-alternans-challenge-db-1.0.0','https://physionet.org/content/twadb/get-zip/1.0.0/'
+            'ptb-xl-db-1.0.3','https://physionet.org/content/ptb-xl/get-zip/1.0.3/'};
 
 %--------------------------------------------------------------------------
 % Define the output folder for the CSV tables produced by the Extraction
 % phase (if it doesn't exist, it'll be created). This folder will also be
 % the entry point of the Transform phase.
-outputExtractCSVpath = 'Outputs/';
+outputExtractCSVpath = 'Outputs2/';
 
 %--------------------------------------------------------------------------
-% Define the Python paths required to predict conduction abnormalities from
-% ECG signals. The following global variables will be used in the
-% runEcgAutoDiagPy function.
+% Define Python settings and paths required to predict conduction
+% abnormalities from ECG signals. The following global variables will be
+% used in the runEcgAutoDiagPy function.
 
 % Define Python executable file path (Python executables in Conda envs work
 % perfectly)
@@ -46,6 +47,12 @@ pathToPythonExec = '/home/preali/miniconda3/envs/ecg-omop/bin/python';
 % NB: must end with '/'
 global pathToPythonFunctions; %#ok<GVMIS>
 pathToPythonFunctions = '/mnt/hdd_data/preali/GitHubProjects/automatic-ecg-diagnosis/';
+
+% Define the maximum amount of memory (in GB) to be used by the
+% Matlab's Python environment (i.e., Python process). Suggestion: set no
+% more than half of the total memory available on the system.
+global pyProcessMemMax; %#ok<GVMIS>
+pyProcessMemMax = 16;
 
 
 %% Adding all paths needed to run the ETL pipeline
@@ -123,6 +130,51 @@ for ds = 1:size(datasets,1)
         fprintf('\n---------------------------------------------\n');
     end
 end
+
+
+%% Data customization for specific datasets
+
+% Here all personalizations needed for specific datasets can be defined.
+
+%--------------------------------------------------------------------------
+% PTB-XL: as this ECG dataset has a structure different from standard
+% PhysioNet ones, we need to:
+%   1. Retain only the records with the highest sampling frequency (500 Hz)
+%      and delete the corresponding downsampled versions.
+%   2. Remove the reference to the downsampled versions also from the
+%      RECORDS list.
+dsName = 'ptb-xl-db-1.0.3';
+dsSel = strcmp(datasets(:,1),dsName);
+if any(dsSel)
+    fprintf('\n---------------------------------------------\n');
+    fprintf('\nPerforming further refinement on data of dataset %s.\n',dsName);
+    % Identify low-sampling-rate files to remove
+    dsPath = fullfile(dataPath,dsName);
+    fListToDel = dir([dsPath,'/*_lr.*']);
+    fListToDel = {fListToDel.name};
+    % Delete the identified files (no recycle)
+    fprintf('\nDeleting low-sampling-rate files...\n');
+    currRecycle = recycle('off');
+    for fname = fListToDel
+        delete(fullfile(dsPath,fname{1}));
+    end
+    recycle(currRecycle);
+    % Delete the corresponding entries from the RECORDS list
+    fprintf('\nEditing the corresponding RECORDS file to reflect the final dataset organization.\n');
+    RECORDSpath = fullfile(dsPath,'RECORDS');
+    opts = delimitedTextImportOptions('DataLines',1,'Delimiter',',',...
+                               'VariableTypes','char','NumVariables',1);
+    cRECORDS = readcell(RECORDSpath,opts);
+    recNamesToDel = unique( strtok(fListToDel,'.') );
+    cRECORDS( matches(cRECORDS,recNamesToDel) ) = [];
+    %Replace the current RECORDS file with the corrected one
+    delete(RECORDSpath); %delete the original RECORDS file
+    writecell(cRECORDS,[RECORDSpath,'.txt']); %writecell forces us to use a file extension
+    movefile([RECORDSpath,'.txt'],RECORDSpath); %remove file extension from the updated RECORDS file
+    fprintf('\nDataset %s refinement completed!',dsName);
+    fprintf('\n---------------------------------------------\n');
+end
+%--------------------------------------------------------------------------
 
 
 %% Execute the Extract phase on all datasets

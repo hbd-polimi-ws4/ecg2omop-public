@@ -209,18 +209,6 @@ if ~isempty(dir_info)
         % Get list of files available in the record path
         folder_info = dir([fileparts(record_path),'/*']);
 
-        % Extract record creation date from the file attributes. The header
-        % files of the tested PhysioNet datasets do not contain this
-        % information, though it might be available sometimes.
-        % COMextraction could be modified to read the date and time of the
-        % acquisition from the header file and, when it is available,
-        % replace the value of dat_str.
-        val = [recordName,'.hea'];
-        fld = {folder_info.name};
-        pos = find(strcmp(fld, val), 1);
-        dat = [folder_info(pos).date, '.000'];
-        dat_str = string(datetime(translateDate(dat), 'Format', 'yyyy-MM-dd HH:mm:ss.SSS'));
-
         % Check if the record indicated in the RECORDS file actually exists
         % before applying the Extraction functions
         regex_pattern = ['^', recordName, '\.'];
@@ -228,6 +216,18 @@ if ~isempty(dir_info)
 
         if found
             %% Feature and information Extraction from the record
+
+            % Extract record creation date from the file attributes. The header
+            % files of the tested PhysioNet datasets do not contain this
+            % information, though it might be available sometimes.
+            % COMextraction could be modified to read the date and time of the
+            % acquisition from the header file and, when it is available,
+            % replace the value of dat_str.
+            val = [recordName,'.hea'];
+            fld = {folder_info.name};
+            pos = find(strcmp(fld, val), 1);
+            dat = [folder_info(pos).date, '.000'];
+            dat_str = string(datetime(translateDate(dat), 'Format', 'yyyy-MM-dd HH:mm:ss.SSS'));
 
             % If this is the first time this loop is executed, the output
             % table CSV files must be created, to which the rows will then

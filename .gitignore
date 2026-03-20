@@ -218,10 +218,12 @@ Datasets_old/
 Datasets2/
 Datasets3/
 Datasets4/
+DatasetsPerfTest/
 Outputs/
 Outputs2/
 Outputs3/
 Outputs4/
+OutputsPerfTest/
 
 # Currently under-development
-*_forTesting.xlsx
+*_forTesting.*
