@@ -12,7 +12,7 @@ clc;
 
 %--------------------------------------------------------------------------
 % Define datasets folder (if it doesn't exist, it'll be created)
-dataPath = 'Datasets2/';
+dataPath = 'Datasets/';
 
 %--------------------------------------------------------------------------
 % Define dataset names and related .zip download URLs (they will be
@@ -29,7 +29,7 @@ datasets = {'lobachevsky-university-ecg-db-1.0.1','https://www.physionet.org/con
 % Define the output folder for the CSV tables produced by the Extraction
 % phase (if it doesn't exist, it'll be created). This folder will also be
 % the entry point of the Transform phase.
-outputExtractCSVpath = 'Outputs2/';
+outputExtractCSVpath = 'Outputs/';
 
 %--------------------------------------------------------------------------
 % Define Python settings and paths required to predict conduction
@@ -143,6 +143,10 @@ end
 %      and delete the corresponding downsampled versions.
 %   2. Remove the reference to the downsampled versions also from the
 %      RECORDS list.
+%   3. Add patient_id, age, and sex extracted from the complementary CSV
+%      file to the header files of the corresponding ECG records (as this
+%      dataset doesn't adhere to PhysioNet's standard modality for
+%      reporting such information)
 dsName = 'ptb-xl-db-1.0.3';
 dsSel = strcmp(datasets(:,1),dsName);
 if any(dsSel)
@@ -167,10 +171,30 @@ if any(dsSel)
     cRECORDS = readcell(RECORDSpath,opts);
     recNamesToDel = unique( strtok(fListToDel,'.') );
     cRECORDS( matches(cRECORDS,recNamesToDel) ) = [];
-    %Replace the current RECORDS file with the corrected one
+    % Replace the current RECORDS file with the corrected one
     delete(RECORDSpath); %delete the original RECORDS file
     writecell(cRECORDS,[RECORDSpath,'.txt']); %writecell forces us to use a file extension
     movefile([RECORDSpath,'.txt'],RECORDSpath); %remove file extension from the updated RECORDS file
+    % Add patient information to header files
+    fprintf('\nEditing .hea files to append relevant patient information.\n');
+    tECGinfo = readtable(fullfile(dsPath,'ptbxl_database.csv'));
+    tECGinfo.sexStr = repmat("M",height(tECGinfo),1);
+    tECGinfo.sexStr(tECGinfo.sex==1) = "F";
+    for k = 1:height(tECGinfo)
+        [~,fname] = fileparts(tECGinfo.filename_hr{k});
+        HEApath = fullfile(dsPath,[fname,'.hea']);
+        %Only correct the header file if it hasn't patient information yet
+        s = fileread(HEApath);
+        if ~contains(s,'<age>')
+            fID = fopen(HEApath,"a");
+            if uint8(s(end))~=10 %If the last character in file isn't 'new line', we need to append one
+                fprintf(fID,'\n');
+            end
+            fprintf(fID,'#<age>: %d <sex>: %s\n# patient %d\n',...
+                    tECGinfo.age(k),tECGinfo.sexStr(k),tECGinfo.patient_id(k));
+            fclose(fID);
+        end
+    end
     fprintf('\nDataset %s refinement completed!',dsName);
     fprintf('\n---------------------------------------------\n');
 end
