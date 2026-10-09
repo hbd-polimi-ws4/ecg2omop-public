@@ -1,6 +1,11 @@
 # ecg2omop-public
 Extract Transform and Load (ETL) pipeline for electrocardiography (ECG) signals processing, feature extraction, and mapping into OMOP CDM.
 
+If you find the code in this repo useful for your work, please cite the following open-access pubblication, where you can also find all details on the implemented pipeline:
+> Reali, P., Tibollo, V., Riboni, G., Plebani, P., Tanca, L., & Signorini, M. G. (2026). An OMOP Common Data Model pipeline for electrocardiography dataset integration by standardizing signal metadata and heart rate variability features. Frontiers in Bioinformatics, 6. https://doi.org/10.3389/fbinf.2026.1801714
+
+Feel free to leave comments or feedback in the Issue tab!
+
 # Requirements, dependencies, and setup process
 This pipeline has been tested on several Linux-based (Fedora and Ubuntu) systems, but it should work fine on Windows too, with no foreseen issues.
 
@@ -24,7 +29,7 @@ To work correctly, this ETL pipeline requires setting up some open-source compon
 - **OMOP-5.4-PostgreSQL**: The original GitHub repository of this project is available [here](https://github.com/SmartChartSuite/OMOP-5.4-PostgreSQL). For our users' convenience, we just added a few clarifications in the original `docker-compose.yml` file, which we provide in [this fork](https://github.com/hbd-polimi-ws4/OMOP-5.4-PostgreSQL). For the execution of the **Load** operations of the ETL pipeline (performed by the `03-Load/MAINload` function), you need an SQL database already set up and running with the appropriate OMOP CDM v5.4 tables and related constraints. If you don't have an OMOP CDM database to play with, probably, the fastest and most automatable way to test our ECG pipeline is by relying on a pre-built container: the project mentioned above, provides a handy way to do this.
     >:warning: Currently, this modality is meant only for testing, not for production, since we haven't had the chance, yet, to test the above container extensively.
 
-    To build the `OMOP-5.4-PostgreSQL` and start a container from it, you need a container runtime supporting the `compose` functionality. Popular options are *Docker* or *Podman*. In this brief guide, we assume you we'll be using Docker, but the same instructions would be applicable to Podman, with minimal changes.
+    To build the `OMOP-5.4-PostgreSQL` and start a container from it, you need a container runtime supporting the `compose` functionality. Popular options are *Docker* or *Podman*. In this brief guide, we assume you will be using Docker, but the same instructions would be applicable to Podman, with minimal changes.
     1. To begin with, check the following software is installed on your system:
         - `docker`: [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) is the only viable option for Windows or Mac, while [Docker Engine](https://docs.docker.com/engine/install/) is a lighter version, suggested for Linux (we are going to use the CLI, anyway, that's why the Desktop version is not needed);
         - `docker-compose`: It should come with Docker Desktop, but it must be installed separately if you opted for Docker Engine.
@@ -68,31 +73,48 @@ To work correctly, this ETL pipeline requires setting up some open-source compon
 
 # Testing the ecg2-omop pipeline
 
-After all the above is done, you can download the content of the present GitHub repository and unzip all the files (or clone the repository) to a path of your choice. Then, take a look to the `example.m` script you can find in the base path of the repo, change everything that you need in the first section, and run it to test the ECG pipeline. It will download and organize for you all the PhysioNet repositories that were considered to develop it.
+After all the above is done, you can download the content of the present GitHub repository and unzip all the files (or clone the repository) to a path of your choice. Then, take a look to the `example.m` script you can find in the base path of the repo, change everything that you need in the first section, and run it to test the ECG pipeline. It will download and organize for you all the PhysioNet repositories that were considered to develop and test the ECG pipeline.
 
 # ETL pipeline structure explanation
 
 ## Extract (E): ECG data import, processing, and feature-extraction functions
 Each module of the pipeline corresponds to a MATLAB function and can be classified as a key component or an auxiliary one; the former are in particular:
 1. **MAINextraction**: The main unit responsible for scanning the files contained in the directory of the dataset under examination, specifying the number of samples to be processed at a time, orchestrating and coordinating the activities involved by calling the other modules, and initialising the data structures needed to store the data to be exported at the end of the process.
-2. **COMextraction**: Extracts and outputs the various information contained in the .hea files.
-3. **SMPextraction**: Reads the .dat files and returns the sampled voltage values from each ECG record with a timestamp and the associated lead.
+2. **COMextraction**: Extracts and outputs the various information contained in the .hea (i.e., header) files.
+3. **SMPextraction**: Reads the .dat (i.e., signal data) files and returns the sampled voltage values from each ECG record with a timestamp and the associated standard lead.
 4. **RRextraction**: Determines the duration of the RR intervals by keeping track of the start and end timestamps.
 5. **ANNextraction**: Processes annotation files by collecting any additional information indicated.
 6. **MTRextraction**: Based on the MHRV Toolbox, evaluates all calculable indices for HRV.
+7. **DGNextraction**: Based on the selected model (in the current pipeline version, the deep neural network by Ribeiro et al., 2021), this module extracts all the conduction abnormalities detected by the model from each ECG recording.
 
-The auxiliary components, listed below, serve as support routines for the execution of additional optimisation processes:
+The following auxiliary components serve as support routines for the main Extraction modules:
 - **EXPLextraction**: To appropriately convert the encodings accepted in the annotation files into textual expressions that can be understood and interpreted by the OMOP CDM lexicon.
 - **EXTextraction**: To detect the extensions of the processed files, checking the presence of the "ANNOTATOR" file to enable the activation of the other functions dedicated to the processing of this type of data.
 - **FSextraction**: To retrieve the sampling frequency of digitised signals, to be passed as an argument to other routines for subsequent operations.
 - **LEADextraction**: To generate a list of labels associated with detected leads from the extracted samples.
+- **runEcgAutoDiagPy**: To call the Python routine that performs conduction abnormality detection from ECG signals.
 - **TMSextraction**: To format the timestamps reported with the processed data.
 - **tableBuilder**: To initialise the tables for the semi-processed output .csv files.
 - **tailPathRec**: To check the correct path of each record retrieved from a dataset.
 - **translateDate**: To translate the given dates into a common format.
 
 ## Transform (T): Map the extracted information to OMOP CDM table attributes and standart concepts
-**MAINtransform**: The main unit of the Transform step, responsible for transforming the tables created by the MAINextraction procedure and map the relevant information into OMOP CDM standard tables. It returns the requested set of standard tables that will then be imported into an OMOP SQL database during the Load step.
+Key modules:
+1. **MAINtransform**: The main unit of the Transform step, responsible for orchestrating the transformation of the tables created by the MAINextraction procedure and map the relevant information into OMOP CDM standard tables. It returns the requested set of standard tables that will then be imported into an OMOP SQL database during the Load step. It calls the following submodules, which are totally customizable based on the information extracted during the Extract step.
+2. **PERSONtransform**: Subunit of the T step that performs the mapping of the extracted information into OMOP CDM `person` table.
+3. **OBSPERIODtransform**: Subunit of the T step that performs the mapping into the `observation_period` table.
+4. **VISITOCCURRtransform**: Subunit of the T step that performs the mapping into the `visit_occurrence` table.
+5. **PROCOCCURRtransform**: Subunit of the T step that performs the mapping into the `procedure_occurrence` table.
+6. **CONDOCCURRtransform**: Subunit of the T step that performs the mapping into the `condition_occurrence` table.
+7. **VOCABCONCtransform**: Subunit of the T step that creates the `vocabulary`, `concept`, and `concept_relationship` tables, based on the specifications defined in the MATLAB function itself. This subunit is useful when a custom vocabulary is necessary to describe measures, conditions, or other entities in the CDM that are not well represented by already available concepts in standard OMOP vocabularies. Note that this submodule must be called in `MAINtransform` before the _transform_ submodules requiring the custom concepts.
+8. **MEASOBStransform**: Subunit of the T step that performs the mapping into the `measurement` and `observation` tables.
+
+Auxiliary functions supporting the key Transform modules:
+- **importExtractedTables**: Service function that imports the CSV files produced by MAINextraction into a corresponding Matlab table, so that the extracted information can be remapped into OMOP CDM tables within MAINtransform.
+- **mapToConceptsFromVocab**: Service function that performs the source to concept mapping (STCM) considering the mapping relationships defined in specific XLSX vocabulary files. The default folder where the mapping vocabularies are stored is `ecg2omop-public/02-Transform/VocabulariesConceptMap`.
+- **tableBuilderOMOP**: Service function defining the schema (attributes' names and data types) for each OMOP CDM table needed in MAINtransform.
 
 ## Load (L): Load the obtained OMOP CDM tables to a database
-**MAINload**: The main unit of the Load step, responsible for loading the OMOP CDM tables obtained at the end of the Transform step into a PostegreSQL OMOP CDM database that has been already configured with the OMOP CDM schema and standard vocabularies. This function also performs some (*basic*, at the moment) checks on whether the same records have been already uploaded to the database and inserts only available "new" ones.
+Key modules:
+1. **MAINload**: The main unit of the Load step, responsible for loading the OMOP CDM tables obtained at the end of the Transform step into a PostegreSQL OMOP CDM database that has been already configured with the OMOP CDM schema and standard vocabularies. This function also performs some (*basic*, at the moment) checks on whether the same records have been already uploaded to the database and inserts only the available non-existent ones.
+2. **queryExamples/**: A collection of example queries that can be used to verify proper implementation and functioning of the populated OMOP database. Part of these queries are shown and discussed in the paper mentioned at the beginning of this README.
